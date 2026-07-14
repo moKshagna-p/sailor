@@ -1,0 +1,23 @@
+{
+  "name": "@sailor/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "^1.4.0",
+    "@sailor/acp": "workspace:*",
+    "@sailor/agent": "workspace:*",
+    "@sailor/core": "workspace:*",
+    "@sailor/db": "workspace:*",
+    "@sailor/latex": "workspace:*",
+    "@sailor/providers": "workspace:*",
+    "ai": "7",
+    "elysia": "^1.4.29",
+    "zod": "4"
+  }
+}
