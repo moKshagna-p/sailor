@@ -1,0 +1,157 @@
+@import "tailwindcss";
+
+/*
+ * Sailor — "the proofing desk".
+ *
+ * The chrome is dark, warm ink. The document is the only bright thing on the
+ * screen, because the document is the point: everything else is a tool sitting
+ * around a sheet of paper. Accent is a proofreader's ochre, and edits read like
+ * proofing marks — struck red, added green.
+ *
+ * Restraint is the whole design. No gradients, no glassmorphism, one accent,
+ * hairline rules, and type doing most of the work.
+ */
+
+@theme {
+  /* Ink — warm, not the usual blue-grey slate. */
+  --color-ink-900: #100f0d;
+  --color-ink-850: #16150f;
+  --color-ink-800: #1c1a17;
+  --color-ink-700: #262320;
+  --color-ink-600: #35312c;
+  --color-ink-500: #4a453e;
+
+  --color-chalk-400: #8a8279;
+  --color-chalk-300: #a9a096;
+  --color-chalk-200: #cec6ba;
+  --color-chalk-100: #ece5d8;
+
+  /* The sheet. Never pure white — paper isn't. */
+  --color-sheet: #f5f1e8;
+
+  /* Proofing marks. */
+  --color-ochre: #c98a3c;
+  --color-ochre-dim: #7a5526;
+  --color-strike: #c65f5f;
+  --color-added: #7d9a63;
+
+  /* The *-loaded vars are injected by next/font in layout.tsx. */
+  --font-display: var(--font-display-loaded), ui-serif, Georgia, serif;
+  --font-sans: var(--font-sans-loaded), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-loaded), ui-monospace, "SF Mono", monospace;
+
+  --radius-sheet: 2px;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-ink-900);
+  color: var(--color-chalk-200);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  /* Faint paper grain over the chrome. Sells "desk" without a texture asset. */
+  background-image: radial-gradient(circle at 1px 1px, rgb(255 255 255 / 0.015) 1px, transparent 0);
+  background-size: 3px 3px;
+}
+
+::selection {
+  background: var(--color-ochre);
+  color: var(--color-ink-900);
+}
+
+/* Hairline rules — the only structure in the layout. */
+.rule-r {
+  border-right: 1px solid var(--color-ink-700);
+}
+.rule-b {
+  border-bottom: 1px solid var(--color-ink-700);
+}
+
+/* Thin, unobtrusive scrollbars. A chunky scrollbar ruins a quiet layout. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-600) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-ink-600);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Focus: ochre, square, unmistakable. Never remove it. */
+:focus-visible {
+  outline: 2px solid var(--color-ochre);
+  outline-offset: 2px;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.rise {
+  animation: rise 0.4s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+/* The one piece of motion that earns its keep: the compile pulse on the sheet. */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+.breathe {
+  animation: breathe 1.4s ease-in-out infinite;
+}
+
+/* CodeMirror, dressed for the desk. */
+.cm-editor {
+  height: 100%;
+  background: transparent !important;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.cm-editor .cm-scroller {
+  font-family: var(--font-mono) !important;
+  line-height: 1.7;
+}
+.cm-editor .cm-gutters {
+  background: transparent !important;
+  border-right: 1px solid var(--color-ink-700) !important;
+  color: var(--color-ink-500);
+}
+.cm-editor .cm-activeLine {
+  background: rgb(201 138 60 / 0.05) !important;
+}
+.cm-editor .cm-activeLineGutter {
+  background: transparent !important;
+  color: var(--color-ochre);
+}
+.cm-editor .cm-content {
+  caret-color: var(--color-ochre);
+}
+.cm-editor .cm-cursor {
+  border-left-color: var(--color-ochre) !important;
+}
+.cm-editor .cm-selectionBackground,
+.cm-editor.cm-focused .cm-selectionBackground {
+  background: rgb(201 138 60 / 0.2) !important;
+}
