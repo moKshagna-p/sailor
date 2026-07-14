@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.next/
+out/
+*.log
+.env
+.env.local
+.DS_Store
+.tectonic-cache/
+.sailor-work/
+
+# Fetched by `bun run scripts/install-tectonic.ts` — a ~48MB binary, not source.
+bin/
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+coverage/
