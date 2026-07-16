@@ -48,6 +48,16 @@ class OAuthError extends Error {
   }
 }
 
+/** A stored-key problem the user can act on: 401 wrong key, 502 provider down. */
+class CredentialError extends Error {
+  constructor(
+    message: string,
+    readonly status: 401 | 502,
+  ) {
+    super(message);
+  }
+}
+
 type OAuthAttempt = {
   userId: string;
   provider: ProviderId;
@@ -78,6 +88,14 @@ function oauthCallbackUrl(provider: ProviderId): string {
   return new URL(`/api/oauth/${provider}/callback`, apiOrigin).toString();
 }
 
+function settingsUrl(params: Record<string, string>): string {
+  const url = new URL('/settings', WEB_ORIGIN);
+  for (const [name, value] of Object.entries(params)) {
+    url.searchParams.set(name, value);
+  }
+  return url.toString();
+}
+
 /** Live ACP peers, keyed by Elysia's socket id. See the /acp handler below. */
 const peers = new Map<string, ReturnType<typeof attachAcp>>();
 
@@ -100,7 +118,7 @@ const app = new Elysia()
       set.status = 400;
       return { error: error.message };
     }
-    if (error instanceof OAuthError) {
+    if (error instanceof OAuthError || error instanceof CredentialError) {
       set.status = error.status;
       return { error: error.message };
     }
@@ -129,6 +147,14 @@ const app = new Elysia()
         label: d.label,
         supports: d.supports,
         available: available.includes(d.id),
+        // `supports` says the provider could do OAuth; this says whether our
+        // OAuth client for it is actually configured, and which shape the flow
+        // takes: a normal redirect back to us, or a code the user pastes.
+        oauthFlow: d.oauth
+          ? d.oauth.codePaste
+            ? ('code-paste' as const)
+            : ('redirect' as const)
+          : null,
         models: d.models,
       })),
     };
@@ -149,6 +175,27 @@ const app = new Elysia()
       }),
       body,
     );
+
+    // Ask the provider itself before storing anything. A key that was never
+    // checked shows up as "Connected" and then fails mid-agent-turn — the worst
+    // possible place to discover a typo.
+    const driver = getDriver(input.provider);
+    let keyWorks: boolean;
+    try {
+      keyWorks = await driver.verifyApiKey(input.apiKey);
+    } catch (cause) {
+      console.error(`[api] ${input.provider} key verification faulted:`, errorMessage(cause));
+      throw new CredentialError(
+        `Could not reach ${driver.label} to verify that key, so it was not saved. Try again in a moment.`,
+        502,
+      );
+    }
+    if (!keyWorks) {
+      throw new CredentialError(
+        `${driver.label} rejected that API key, so it was not saved. Check it for typos or create a new one.`,
+        401,
+      );
+    }
 
     await upsertCredential({
       userId,
@@ -196,7 +243,12 @@ const app = new Elysia()
 
     const redirect = new URL(oauth.authorizationUrl);
     redirect.searchParams.set('client_id', oauth.clientId);
-    redirect.searchParams.set('redirect_uri', oauthCallbackUrl(provider));
+    // Code-paste clients only allow the provider's own code page as the target;
+    // everyone else comes back to our /callback route.
+    redirect.searchParams.set(
+      'redirect_uri',
+      oauth.codePaste?.redirectUri ?? oauthCallbackUrl(provider),
+    );
     redirect.searchParams.set('response_type', 'code');
     redirect.searchParams.set('scope', oauth.scopes.join(' '));
     redirect.searchParams.set('state', state);
@@ -211,51 +263,117 @@ const app = new Elysia()
     return Response.redirect(redirect.toString(), 302);
   })
 
-  /** Exchanges a one-time authorization code and redirects without exposing it. */
+  /**
+   * Exchanges a one-time authorization code and redirects without exposing it.
+   * This is a browser navigation arriving from the provider, so it never renders
+   * JSON: success and failure both land back on Settings with a legible banner.
+   */
   .get('/api/oauth/:provider/callback', async ({ headers, params, query }) => {
-    const provider = parse(ProviderId, params.provider);
-    const input = parse(
-      z.object({
-        state: z.string().min(1),
-        code: z.string().min(1).optional(),
-        error: z.string().min(1).optional(),
-      }),
-      query,
-    );
-    const attempt = oauthAttempts.get(input.state);
-    oauthAttempts.delete(input.state);
+    try {
+      const provider = parse(ProviderId, params.provider);
+      const input = parse(
+        z.object({
+          state: z.string().min(1),
+          code: z.string().min(1).optional(),
+          error: z.string().min(1).optional(),
+        }),
+        query,
+      );
+      const attempt = oauthAttempts.get(input.state);
+      oauthAttempts.delete(input.state);
 
-    if (!attempt || attempt.expiresAt <= Date.now()) {
-      throw new OAuthError('That OAuth sign-in link has expired. Start again from Sailor.', 409);
-    }
-    if (attempt.provider !== provider) {
-      throw new OAuthError('That OAuth sign-in link was issued for another provider.', 400);
-    }
-    if (input.error || !input.code) {
-      throw new OAuthError('The provider did not approve the connection.', 400);
-    }
+      if (!attempt || attempt.expiresAt <= Date.now()) {
+        throw new OAuthError('That OAuth sign-in link has expired. Start again from Sailor.', 409);
+      }
+      if (attempt.provider !== provider) {
+        throw new OAuthError('That OAuth sign-in link was issued for another provider.', 400);
+      }
+      if (input.error || !input.code) {
+        throw new OAuthError('The provider did not approve the connection.', 400);
+      }
 
-    // State is the authoritative binding, but this catches a stale/cross-user
-    // browser session too when the real auth adapter replaces the development stub.
+      // State is the authoritative binding, but this catches a stale/cross-user
+      // browser session too when the real auth adapter replaces the development stub.
+      const userId = await currentUserId(headers);
+      if (userId !== attempt.userId) {
+        throw new OAuthError('Your Sailor session changed while connecting the provider.', 409);
+      }
+
+      const oauth = getDriver(provider).oauth;
+      if (!oauth) {
+        throw new OAuthError(`OAuth is not configured for ${provider}`, 404);
+      }
+      const token = await oauth.exchangeCode({
+        code: input.code,
+        state: input.state,
+        redirectUri: oauthCallbackUrl(provider),
+        codeVerifier: attempt.codeVerifier,
+      });
+      await credentialStore.save(userId, provider, token);
+
+      // The code has been consumed by this point. Redirect to a URL with no code,
+      // avoiding browser history and Referer leaks from the callback query string.
+      return Response.redirect(settingsUrl({ oauth: 'connected' }), 302);
+    } catch (cause) {
+      console.error('[api] oauth callback failed:', errorMessage(cause));
+      // OAuthError messages are written for the user; anything else stays vague
+      // so an internal message can never leak through a redirect.
+      const reason =
+        cause instanceof OAuthError
+          ? cause.message
+          : 'The connection could not be completed. Try again.';
+      return Response.redirect(settingsUrl({ oauth: 'error', reason }), 302);
+    }
+  })
+
+  /**
+   * Completes a code-paste OAuth flow (Anthropic). The consent page cannot
+   * redirect back to Sailor, so it shows the user a `code#state` string and the
+   * browser POSTs it here. The state half must match a live attempt created by
+   * /authorize for this same user — the pasted string alone is not enough.
+   */
+  .post('/api/oauth/:provider/exchange', async ({ headers, params, body }) => {
     const userId = await currentUserId(headers);
-    if (userId !== attempt.userId) {
-      throw new OAuthError('Your Sailor session changed while connecting the provider.', 409);
+    const provider = parse(ProviderId, params.provider);
+    const oauth = getDriver(provider).oauth;
+    if (!oauth?.codePaste) {
+      throw new OAuthError(`Pasting a code is not how ${provider} connects here.`, 404);
     }
 
-    const oauth = getDriver(provider).oauth;
-    if (!oauth) {
-      throw new OAuthError(`OAuth is not configured for ${provider}`, 404);
+    const input = parse(z.object({ code: z.string().min(1) }), body);
+    const pasted = input.code.trim();
+    const hash = pasted.indexOf('#');
+    if (hash <= 0 || hash === pasted.length - 1) {
+      throw new OAuthError(
+        'That does not look like a complete code. Copy the whole string the provider showed, including the part after "#".',
+        400,
+      );
     }
+    const code = pasted.slice(0, hash);
+    const state = pasted.slice(hash + 1);
+
+    const attempt = oauthAttempts.get(state);
+    oauthAttempts.delete(state);
+    if (!attempt || attempt.expiresAt <= Date.now()) {
+      throw new OAuthError(
+        'That code has expired or was already used. Click Connect and approve again.',
+        409,
+      );
+    }
+    if (attempt.provider !== provider || attempt.userId !== userId) {
+      throw new OAuthError('That code was issued for a different connection attempt.', 409);
+    }
+
     const token = await oauth.exchangeCode({
-      code: input.code,
-      redirectUri: oauthCallbackUrl(provider),
+      code,
+      state,
+      redirectUri: oauth.codePaste.redirectUri,
       codeVerifier: attempt.codeVerifier,
     });
     await credentialStore.save(userId, provider, token);
 
-    // The code has been consumed by this point. Redirect to a URL with no code,
-    // avoiding browser history and Referer leaks from the callback query string.
-    return Response.redirect(new URL('/?oauth=connected', WEB_ORIGIN).toString(), 302);
+    // Like every credential route: the token itself is never in the response.
+    return { ok: true };
   })
 
   // --- Resumes -------------------------------------------------------------

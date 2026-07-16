@@ -27,6 +27,13 @@ export type ProviderInfo = {
   label: string;
   supports: string[];
   available: boolean;
+  /**
+   * How this provider connects an account, when our OAuth client for it is
+   * configured: 'redirect' comes back to Sailor on its own; 'code-paste' shows
+   * the user a code on the provider's page to paste into Settings. Null means
+   * API key only (for now).
+   */
+  oauthFlow: 'redirect' | 'code-paste' | null;
   models: Array<{
     provider: string;
     modelId: string;
@@ -72,6 +79,16 @@ export const api = {
 
   deleteKey: (provider: string) =>
     json<{ ok: true }>(`/api/credentials/${provider}`, { method: 'DELETE' }),
+
+  /** A full-page navigation target: the API 302s straight to the provider. */
+  oauthAuthorizeUrl: (provider: string) => `${API}/api/oauth/${provider}/authorize`,
+
+  /** Completes a code-paste OAuth flow with the `code#state` string the user copied. */
+  exchangeOAuthCode: (provider: string, code: string) =>
+    json<{ ok: true }>(`/api/oauth/${provider}/exchange`, {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
 
   createJob: (input: {
     company: string;
