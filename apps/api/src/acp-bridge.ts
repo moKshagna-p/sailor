@@ -110,6 +110,16 @@ export function attachAcp(transport: Transport, getUserId: () => Promise<string>
       store: credentialStore,
     });
 
+    // Anthropic subscription tokens (obtained by connecting a Claude account)
+    // are accepted by our token exchange but *rejected at inference* unless the
+    // request impersonates Claude Code — Anthropic scopes them to that client.
+    // Sailor does not impersonate another app, so this connection cannot run the
+    // model. Detect it up front and say so, instead of letting the turn die with
+    // an opaque "AI_APICallError: Error" after three silent retries.
+    const usingAnthropicSubscription =
+      ref.provider === 'anthropic' &&
+      (await credentialStore.load(session.userId, 'anthropic'))?.kind === 'oauth';
+
     const abort = new AbortController();
     session.abort = abort;
 
@@ -119,6 +129,19 @@ export function attachAcp(transport: Transport, getUserId: () => Promise<string>
         update: event,
       });
     };
+
+    if (usingAnthropicSubscription) {
+      emit({
+        type: 'error',
+        message:
+          'Your Anthropic connection is a Claude subscription (from "Connect account"). ' +
+          'Anthropic only allows those tokens inside Claude Code, so Sailor cannot run the ' +
+          'model with it. Add an Anthropic API key in Settings instead — create one at ' +
+          'console.anthropic.com — or pick a provider you have a key for.',
+      });
+      emit({ type: 'turn_end', stopReason: 'error' });
+      return { stopReason: 'error' };
+    }
 
     const ctx = liveContext(session, connection, emit);
     const history = (await getSessionMessages(session.sessionId)) as ModelMessage[];
