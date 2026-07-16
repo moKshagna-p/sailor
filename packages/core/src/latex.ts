@@ -15,6 +15,13 @@ export type CompileOk = {
   diagnostics: LatexDiagnostic[];
   durationMs: number;
   engine: 'tectonic' | 'wasm';
+  /**
+   * Raw SyncTeX map (decompressed text), present only when a compile was asked
+   * for it. It ties PDF coordinates back to source line numbers — the basis for
+   * "click a spot in the preview, land on the LaTeX that produced it". Absent on
+   * the WASM engine, which cannot emit it.
+   */
+  synctex?: string;
 };
 
 export type CompileErr = {

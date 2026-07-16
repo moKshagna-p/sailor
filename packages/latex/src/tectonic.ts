@@ -37,7 +37,7 @@ const gate = new Semaphore(Number(process.env.LATEX_POOL_SIZE ?? 4));
 
 export async function compileWithTectonic(
   tree: ResumeTree,
-  options: { timeoutMs?: number } = {},
+  options: { timeoutMs?: number; synctex?: boolean } = {},
 ): Promise<CompileResult> {
   const timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
   const release = await gate.acquire();
@@ -73,6 +73,9 @@ export async function compileWithTectonic(
         dir,
         '--keep-logs',
         '--print',
+        // Only when asked: the map is dead weight on the compile-before-commit
+        // path (the agent never clicks), and only the live preview needs it.
+        ...(options.synctex ? ['--synctex'] : []),
       ],
       {
         cwd: dir,
@@ -133,10 +136,27 @@ export async function compileWithTectonic(
       diagnostics,
       durationMs,
       engine: 'tectonic',
+      ...(options.synctex ? { synctex: await readSyncTex(dir, entry.path) } : {}),
     };
   } finally {
     release();
     if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Read and decompress the SyncTeX map Tectonic wrote next to the PDF. A missing
+ * or unreadable file is not fatal — it just means no click-to-source for this
+ * build — so this returns undefined rather than throwing into the compile.
+ */
+async function readSyncTex(dir: string, entryPath: string): Promise<string | undefined> {
+  const gzPath = join(dir, entryPath.replace(/\.tex$/, '.synctex.gz'));
+  const gz = Bun.file(gzPath);
+  if (!(await gz.exists())) return undefined;
+  try {
+    return new TextDecoder().decode(Bun.gunzipSync(new Uint8Array(await gz.arrayBuffer())));
+  } catch {
+    return undefined;
   }
 }
 
