@@ -18,6 +18,8 @@ import {
   getJobTarget,
   getSession,
   getSessionMessages,
+  isJobTargetOwnedBy,
+  isResumeOwnedBy,
 } from '@sailor/db';
 import { getModel } from '@sailor/providers';
 import type { ModelMessage } from 'ai';
@@ -67,6 +69,12 @@ export function attachAcp(transport: Transport, getUserId: () => Promise<string>
     parseModelRef(params.model);
 
     const userId = await getUserId();
+    if (!(await isResumeOwnedBy(userId, params.resumeId))) {
+      throw new Error('Resume not found');
+    }
+    if (params.jobTargetId !== null && !(await isJobTargetOwnedBy(userId, params.jobTargetId))) {
+      throw new Error('Job target not found');
+    }
     const sessionId = await createSession({
       userId,
       resumeId: params.resumeId,
@@ -89,7 +97,9 @@ export function attachAcp(transport: Transport, getUserId: () => Promise<string>
 
   connection.on(METHODS.prompt, async (raw) => {
     const params = PromptParams.parse(raw);
-    const session = sessions.get(params.sessionId) ?? (await rehydrate(params.sessionId, sessions));
+    const session =
+      sessions.get(params.sessionId) ??
+      (await rehydrate(params.sessionId, await getUserId(), sessions));
     if (!session) throw new Error(`Unknown session ${params.sessionId}`);
 
     const ref = parseModelRef(session.model);
@@ -242,10 +252,11 @@ function liveContext(
 /** A page refresh drops the in-memory session; the DB still has it. */
 async function rehydrate(
   sessionId: string,
+  userId: string,
   sessions: Map<string, LiveSession>,
 ): Promise<LiveSession | null> {
   const row = await getSession(sessionId);
-  if (!row) return null;
+  if (!row || row.userId !== userId) return null;
 
   const session: LiveSession = {
     sessionId: row.id,

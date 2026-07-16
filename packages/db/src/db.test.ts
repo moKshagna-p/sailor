@@ -2,7 +2,17 @@ import { expect, test } from 'bun:test';
 import type { ResumeTree } from '@sailor/core';
 import { hashTree } from '@sailor/core';
 import { decryptSecret, encryptSecret } from './crypto.ts';
-import { commitVersion, createResume, ensureUser, listVersions, rollbackTo } from './queries.ts';
+import {
+  commitVersion,
+  createJobTarget,
+  createResume,
+  ensureUser,
+  isJobTargetOwnedBy,
+  isResumeOwnedBy,
+  isVersionOwnedBy,
+  listVersions,
+  rollbackTo,
+} from './queries.ts';
 
 const tree = (bullet: string): ResumeTree => ({
   entry: 'main.tex',
@@ -78,4 +88,29 @@ test('versions are append-only, deduped, and rollback is non-destructive', async
   const history = await listVersions(resumeId);
   expect(history).toHaveLength(3); // initial, edit, rollback — nothing destroyed
   expect(history.map((v) => v.summary)).toContain('Tailor for Acme');
+});
+
+test('ownership checks reject another user’s resume, version, and job target', async () => {
+  const ownerId = await ensureUser(`owner-${crypto.randomUUID()}@sailor.local`);
+  const otherUserId = await ensureUser(`other-${crypto.randomUUID()}@sailor.local`);
+  const { resumeId, versionId } = await createResume({
+    userId: ownerId,
+    title: 'Private resume',
+    tree: tree('Private accomplishment'),
+  });
+  const jobTargetId = await createJobTarget({
+    userId: ownerId,
+    company: 'Acme',
+    role: 'Engineer',
+    description: 'Build reliable systems with a thoughtful team.',
+    sourceUrl: null,
+    provenance: 'pasted',
+  });
+
+  expect(await isResumeOwnedBy(ownerId, resumeId)).toBe(true);
+  expect(await isVersionOwnedBy(ownerId, versionId)).toBe(true);
+  expect(await isJobTargetOwnedBy(ownerId, jobTargetId)).toBe(true);
+  expect(await isResumeOwnedBy(otherUserId, resumeId)).toBe(false);
+  expect(await isVersionOwnedBy(otherUserId, versionId)).toBe(false);
+  expect(await isJobTargetOwnedBy(otherUserId, jobTargetId)).toBe(false);
 });

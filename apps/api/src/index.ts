@@ -7,6 +7,8 @@ import {
   deleteCredential,
   getCurrentVersion,
   getVersion,
+  isResumeOwnedBy,
+  isVersionOwnedBy,
   listCredentials,
   listResumes,
   listVersions,
@@ -78,6 +80,18 @@ function oauthCallbackUrl(provider: ProviderId): string {
 
 /** Live ACP peers, keyed by Elysia's socket id. See the /acp handler below. */
 const peers = new Map<string, ReturnType<typeof attachAcp>>();
+
+async function requireResumeOwner(userId: string, resumeId: string): Promise<void> {
+  if (!(await isResumeOwnedBy(userId, resumeId))) {
+    throw new ValidationError(`Resume ${resumeId} not found`);
+  }
+}
+
+async function requireVersionOwner(userId: string, versionId: string): Promise<void> {
+  if (!(await isVersionOwnedBy(userId, versionId))) {
+    throw new ValidationError(`Version ${versionId} not found`);
+  }
+}
 
 const app = new Elysia()
   .use(cors({ origin: WEB_ORIGIN, credentials: true }))
@@ -283,18 +297,24 @@ const app = new Elysia()
     return { resumeId, versionId };
   })
 
-  .get('/api/resumes/:id', async ({ params }) => {
+  .get('/api/resumes/:id', async ({ headers, params }) => {
+    const userId = await currentUserId(headers);
+    await requireResumeOwner(userId, params.id);
     const version = await getCurrentVersion(params.id);
     if (!version) throw new ValidationError(`Resume ${params.id} not found`);
     return { version };
   })
 
-  .get('/api/resumes/:id/versions', async ({ params }) => {
+  .get('/api/resumes/:id/versions', async ({ headers, params }) => {
+    const userId = await currentUserId(headers);
+    await requireResumeOwner(userId, params.id);
     return { versions: await listVersions(params.id) };
   })
 
   /** A user-initiated save from the editor. */
-  .post('/api/resumes/:id/versions', async ({ params, body }) => {
+  .post('/api/resumes/:id/versions', async ({ headers, params, body }) => {
+    const userId = await currentUserId(headers);
+    await requireResumeOwner(userId, params.id);
     const input = parse(
       z.object({
         tree: ResumeTree,
@@ -318,8 +338,15 @@ const app = new Elysia()
     };
   })
 
-  .post('/api/resumes/:id/rollback', async ({ body }) => {
+  .post('/api/resumes/:id/rollback', async ({ headers, params, body }) => {
+    const userId = await currentUserId(headers);
+    await requireResumeOwner(userId, params.id);
     const input = parse(z.object({ versionId: z.string() }), body);
+    await requireVersionOwner(userId, input.versionId);
+    const version = await getVersion(input.versionId);
+    if (!version || version.resumeId !== params.id) {
+      throw new ValidationError(`Version ${input.versionId} does not belong to this resume`);
+    }
     const outcome = await rollbackTo(input.versionId);
     return { versionId: outcome.version.id };
   })
@@ -349,7 +376,9 @@ const app = new Elysia()
   })
 
   /** Compile a stored version — used by the download button. */
-  .get('/api/versions/:id/pdf', async ({ params, set }) => {
+  .get('/api/versions/:id/pdf', async ({ headers, params, set }) => {
+    const userId = await currentUserId(headers);
+    await requireVersionOwner(userId, params.id);
     const version = await getVersion(params.id);
     if (!version) throw new ValidationError(`Version ${params.id} not found`);
 

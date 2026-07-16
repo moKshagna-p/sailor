@@ -58,6 +58,26 @@ export async function listResumes(userId: string): Promise<ResumeSummary[]> {
     .orderBy(desc(resumes.updatedAt));
 }
 
+/** Ownership checks live with the queries so callers never re-create SQL. */
+export async function isResumeOwnedBy(userId: string, resumeId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: resumes.id })
+    .from(resumes)
+    .where(and(eq(resumes.id, resumeId), eq(resumes.userId, userId)))
+    .limit(1);
+  return rows.length === 1;
+}
+
+export async function isVersionOwnedBy(userId: string, versionId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: resumeVersions.id })
+    .from(resumeVersions)
+    .innerJoin(resumes, eq(resumeVersions.resumeId, resumes.id))
+    .where(and(eq(resumeVersions.id, versionId), eq(resumes.userId, userId)))
+    .limit(1);
+  return rows.length === 1;
+}
+
 /** Creates the resume *and* its root version in one transaction. */
 export async function createResume(args: {
   userId: string;
@@ -329,6 +349,15 @@ export async function createJobTarget(args: {
 export async function getJobTarget(id: string) {
   const rows = await db.select().from(jobTargets).where(eq(jobTargets.id, id));
   return rows[0] ?? null;
+}
+
+export async function isJobTargetOwnedBy(userId: string, jobTargetId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: jobTargets.id })
+    .from(jobTargets)
+    .where(and(eq(jobTargets.id, jobTargetId), eq(jobTargets.userId, userId)))
+    .limit(1);
+  return rows.length === 1;
 }
 
 export async function createSession(args: {
