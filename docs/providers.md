@@ -8,8 +8,8 @@ it never imports a provider SDK or handles an API key directly.
 
 Create a driver under `packages/providers/src/drivers/` and register it in
 `registry.ts`. A driver declares its id, label, supported credential kinds,
-curated tool-capable models, `createModel()`, and optional OAuth support. SDK
-imports are allowed only in this directory.
+curated tool-capable models, `createModel()`, `verifyApiKey()`, and optional
+OAuth support. SDK imports are allowed only in this directory.
 
 The registry owns the common resolution order:
 
@@ -26,9 +26,12 @@ picker.
 
 ## API keys
 
-`POST /api/credentials` accepts an API key and stores it encrypted. The route
-returns only `{ ok: true }`; neither it nor credential-listing endpoints return
-a key or a prefix. Environment fallbacks are `ANTHROPIC_API_KEY`,
+`POST /api/credentials` accepts an API key, verifies it against the provider
+with a cheap authenticated probe (`verifyApiKey()` on the driver), and only
+then stores it encrypted. A rejected key is a 401 and is never saved; an
+unreachable provider is a 502, so a network fault is never reported as a wrong
+key. The route returns only `{ ok: true }`; neither it nor credential-listing
+endpoints return a key or a prefix. Environment fallbacks are `ANTHROPIC_API_KEY`,
 `OPENAI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, and `OPENROUTER_API_KEY`.
 
 ## OAuth
@@ -42,7 +45,23 @@ uses the same generic routes for every configured driver:
   bound to the current user for ten minutes, then redirects to the provider.
 - `GET /api/oauth/:provider/callback` validates and consumes that state, trades
   the code for tokens through the driver, encrypts them through the credential
-  store, and redirects to a clean browser URL with no code in it.
+  store, and redirects to `/settings?oauth=connected` — a clean browser URL
+  with no code in it. Failures redirect to `/settings?oauth=error` with a
+  user-legible reason instead of rendering JSON at the API origin.
+
+Some public OAuth clients refuse third-party redirect URIs. Anthropic's is one:
+its consent page can only land on Anthropic's own code-display page. A driver
+declares this with `codePaste` on its OAuth descriptor, and the flow changes
+shape: `/authorize` still creates the state and redirects to consent, but the
+provider then shows the user a `code#state` string, which the browser submits to
+`POST /api/oauth/:provider/exchange`. The state half must match a live attempt
+created by the same user; the exchange behaves exactly like the callback route
+otherwise, and no token is ever in the response.
+
+The Settings page offers a "Connect account" button for every provider whose
+driver currently exposes an `oauth` descriptor (`oauthFlow` in
+`GET /api/models`), alongside the API-key form — plus a paste-the-code field
+for `code-paste` providers.
 
 The state and PKCE verifier are in API memory only and are deleted on use or
 expiry. Access and refresh tokens never pass through a browser response. For a

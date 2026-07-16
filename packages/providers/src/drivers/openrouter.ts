@@ -1,7 +1,12 @@
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { ResolvedCredential } from '@sailor/core';
 import type { LanguageModel } from 'ai';
-import { assertSupports, type ProviderDriver } from '../driver.ts';
+import {
+  assertSupports,
+  KEY_PROBE_TIMEOUT_MS,
+  keyProbeResult,
+  type ProviderDriver,
+} from '../driver.ts';
 
 /**
  * OpenRouter is the escape hatch: one API key, hundreds of models. It is
@@ -50,5 +55,13 @@ export const openrouterDriver: ProviderDriver = {
     }
 
     return createOpenRouter({ apiKey: credential.apiKey })(modelId) as LanguageModel;
+  },
+
+  async verifyApiKey(apiKey: string): Promise<boolean> {
+    const res = await fetch('https://openrouter.ai/api/v1/key', {
+      headers: { authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(KEY_PROBE_TIMEOUT_MS),
+    });
+    return keyProbeResult(res, 'openrouter');
   },
 };

@@ -1,7 +1,13 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { ResolvedCredential } from '@sailor/core';
 import type { LanguageModel } from 'ai';
-import { assertSupports, type ProviderDriver, readOAuthTokens } from '../driver.ts';
+import {
+  assertSupports,
+  KEY_PROBE_TIMEOUT_MS,
+  keyProbeResult,
+  type ProviderDriver,
+  readOAuthTokens,
+} from '../driver.ts';
 
 const CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
@@ -47,6 +53,15 @@ export const googleDriver: ProviderDriver = {
         : createGoogleGenerativeAI({ apiKey: credential.apiKey });
 
     return provider(modelId);
+  },
+
+  async verifyApiKey(apiKey: string): Promise<boolean> {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', {
+      headers: { 'x-goog-api-key': apiKey },
+      signal: AbortSignal.timeout(KEY_PROBE_TIMEOUT_MS),
+    });
+    // Gemini answers a malformed or revoked key with 400 INVALID_ARGUMENT, not 401.
+    return keyProbeResult(res, 'google', [400, 401, 403]);
   },
 
   ...(CLIENT_ID && CLIENT_SECRET

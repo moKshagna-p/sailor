@@ -1,7 +1,13 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import type { ResolvedCredential } from '@sailor/core';
 import type { LanguageModel } from 'ai';
-import { assertSupports, type ProviderDriver, readOAuthTokens } from '../driver.ts';
+import {
+  assertSupports,
+  KEY_PROBE_TIMEOUT_MS,
+  keyProbeResult,
+  type ProviderDriver,
+  readOAuthTokens,
+} from '../driver.ts';
 
 const CLIENT_ID = process.env.OPENAI_OAUTH_CLIENT_ID;
 const CLIENT_SECRET = process.env.OPENAI_OAUTH_CLIENT_SECRET;
@@ -39,6 +45,14 @@ export const openaiDriver: ProviderDriver = {
 
     const token = credential.kind === 'oauth' ? credential.accessToken : credential.apiKey;
     return createOpenAI({ apiKey: token })(modelId);
+  },
+
+  async verifyApiKey(apiKey: string): Promise<boolean> {
+    const res = await fetch('https://api.openai.com/v1/models', {
+      headers: { authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(KEY_PROBE_TIMEOUT_MS),
+    });
+    return keyProbeResult(res, 'openai');
   },
 
   ...(CLIENT_ID

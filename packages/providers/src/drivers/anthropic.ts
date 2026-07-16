@@ -1,7 +1,13 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import type { ResolvedCredential } from '@sailor/core';
 import type { LanguageModel } from 'ai';
-import { assertSupports, type ProviderDriver, readOAuthTokens } from '../driver.ts';
+import {
+  assertSupports,
+  KEY_PROBE_TIMEOUT_MS,
+  keyProbeResult,
+  type ProviderDriver,
+  readOAuthTokens,
+} from '../driver.ts';
 
 /**
  * Anthropic accepts either an `x-api-key` (API key) or an `Authorization: Bearer`
@@ -14,8 +20,10 @@ import { assertSupports, type ProviderDriver, readOAuthTokens } from '../driver.
 const OAUTH_BETA = 'oauth-2025-04-20';
 
 // Public PKCE client id used by Anthropic's own first-party OAuth flow. Not a
-// secret — PKCE exists precisely so a public client needs none.
-const CLIENT_ID = process.env.ANTHROPIC_OAUTH_CLIENT_ID ?? '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+// secret — PKCE exists precisely so a public client needs none. `||`, not `??`:
+// a blank ANTHROPIC_OAUTH_CLIENT_ID= line in .env must mean "use the default",
+// not "send an empty client_id to the provider".
+const CLIENT_ID = process.env.ANTHROPIC_OAUTH_CLIENT_ID || '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 
 export const anthropicDriver: ProviderDriver = {
   id: 'anthropic',
@@ -62,6 +70,14 @@ export const anthropicDriver: ProviderDriver = {
     return provider(modelId);
   },
 
+  async verifyApiKey(apiKey: string): Promise<boolean> {
+    const res = await fetch('https://api.anthropic.com/v1/models?limit=1', {
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      signal: AbortSignal.timeout(KEY_PROBE_TIMEOUT_MS),
+    });
+    return keyProbeResult(res, 'anthropic');
+  },
+
   oauth: {
     clientId: CLIENT_ID,
     authorizationUrl: 'https://claude.ai/oauth/authorize',
@@ -69,7 +85,12 @@ export const anthropicDriver: ProviderDriver = {
     // Anthropic's public client asks for the authorization-code response explicitly.
     authorizationParams: { code: 'true' },
     usesPkce: true,
-    async exchangeCode({ code, redirectUri, codeVerifier }) {
+    // This public client rejects any redirect URI that is not Anthropic's own —
+    // pointing it at Sailor's /callback fails with "Redirect URI … is not
+    // supported by client". Consent therefore lands on Anthropic's code page,
+    // and the user pastes the displayed `code#state` into Settings.
+    codePaste: { redirectUri: 'https://console.anthropic.com/oauth/code/callback' },
+    async exchangeCode({ code, state, redirectUri, codeVerifier }) {
       if (!codeVerifier) throw new Error('Anthropic OAuth requires a PKCE verifier');
 
       const res = await fetch('https://console.anthropic.com/v1/oauth/token', {
@@ -78,6 +99,8 @@ export const anthropicDriver: ProviderDriver = {
         body: JSON.stringify({
           grant_type: 'authorization_code',
           code,
+          // The code-paste exchange requires the state that came glued to the code.
+          ...(state ? { state } : {}),
           client_id: CLIENT_ID,
           redirect_uri: redirectUri,
           code_verifier: codeVerifier,

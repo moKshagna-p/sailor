@@ -19,8 +19,18 @@ export type OAuthConfig = {
   scopes: readonly string[];
   authorizationParams?: Readonly<Record<string, string>>;
   usesPkce: boolean;
+  /**
+   * Present when the provider's OAuth client refuses third-party redirect URIs
+   * (Anthropic's public client allows only its own console page). The consent
+   * screen then lands on `redirectUri` — a page the provider owns that displays
+   * a `code#state` string — and the user pastes that string into Settings
+   * instead of being redirected back to Sailor.
+   */
+  codePaste?: { redirectUri: string };
   exchangeCode(args: {
     code: string;
+    /** Echoed by code-paste providers and required in their token exchange. */
+    state: string | null;
     redirectUri: string;
     codeVerifier: string | null;
   }): Promise<OAuthTokens>;
@@ -45,6 +55,14 @@ export type ProviderDriver = {
   /** Build an AI SDK model bound to this credential. */
   createModel(credential: ResolvedCredential, modelId: string): LanguageModel;
 
+  /**
+   * Ask the provider whether this API key actually works, with a cheap
+   * authenticated request. Returns false only when the provider definitively
+   * rejected the key; a network fault or provider outage throws instead, so a
+   * flaky connection is never reported to the user as "wrong key".
+   */
+  verifyApiKey(apiKey: string): Promise<boolean>;
+
   /** Omit this for API-key-only drivers or OAuth clients not configured here. */
   oauth?: OAuthConfig;
 
@@ -54,6 +72,24 @@ export type ProviderDriver = {
    */
   refresh?(refreshToken: string): Promise<OAuthTokens>;
 };
+
+/** Bound how long a key-verification probe may hang before we call it a fault. */
+export const KEY_PROBE_TIMEOUT_MS = 10_000;
+
+/**
+ * Maps a key-probe response to "does this key work". `invalidStatuses` are the
+ * codes this provider uses for a bad key (401/403 for most; Google adds 400).
+ * Anything else non-OK is the provider's fault, not the key's, and throws.
+ */
+export function keyProbeResult(
+  response: Response,
+  provider: ProviderId,
+  invalidStatuses: readonly number[] = [401, 403],
+): boolean {
+  if (response.ok) return true;
+  if (invalidStatuses.includes(response.status)) return false;
+  throw new Error(`${provider} API key verification failed (${response.status})`);
+}
 
 const OAuthTokenResponse = z.object({
   access_token: z.string().min(1),
