@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { CompileResult, ResumeTree } from '@sailor/core';
 import { getEntryFile } from '@sailor/core';
 import { parseLatexLog } from './diagnostics.ts';
@@ -16,8 +17,12 @@ import { Semaphore } from './semaphore.ts';
  * with a semaphore. `prewarm()` populates the cache at boot so the first real
  * user compile is not the one that pays for it.
  */
-const CACHE_DIR = resolve(process.env.TECTONIC_CACHE_DIR ?? '.tectonic-cache');
-const BIN = resolve(process.env.TECTONIC_BIN ?? './bin/tectonic');
+// This package is executed from the API workspace in development, from the repo
+// root in tests, and from an arbitrary working directory in production. Resolve
+// relative TeX paths against the repository/project root, never `process.cwd()`.
+const PROJECT_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
+const CACHE_DIR = resolve(PROJECT_ROOT, process.env.TECTONIC_CACHE_DIR ?? '.tectonic-cache');
+const BIN = resolve(PROJECT_ROOT, process.env.TECTONIC_BIN ?? './bin/tectonic');
 const TIMEOUT_MS = Number(process.env.LATEX_TIMEOUT_MS ?? 20_000);
 
 /**

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "mcp": "bun run src/mcp/server.ts"
+    "mcp": "bun --env-file=../../.env src/mcp/server.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
