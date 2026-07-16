@@ -68,6 +68,9 @@ export default function Library() {
             Sailor
           </h1>
           <span className="font-mono text-[11px] tracking-widest text-ink-500 uppercase">v0.1</span>
+          <Link href="/settings" className="font-mono text-[11px] text-ink-500 hover:text-ochre">
+            Settings
+          </Link>
         </div>
         <p className="mt-4 max-w-md text-[15px] leading-relaxed text-chalk-400">
           Tailor your LaTeX résumé to a specific job. The agent reads the real posting, shows you

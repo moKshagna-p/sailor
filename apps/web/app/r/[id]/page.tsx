@@ -1,6 +1,6 @@
 'use client';
 
-import type { ResumeTree } from '@sailor/core';
+import type { ResumeTree, ResumeVersion } from '@sailor/core';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -40,6 +40,7 @@ export default function Workbench() {
     null,
   );
   const [jobDialogOpen, setJobDialogOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const [items, setItems] = useState<ChatItem[]>([]);
   const [busy, setBusy] = useState(false);
@@ -203,6 +204,16 @@ export default function Workbench() {
     setJobDialogOpen(false);
   }, []);
 
+  const rollback = useCallback(
+    async (targetVersionId: string) => {
+      const result = await api.rollback(resumeId, targetVersionId);
+      setVersionId(result.versionId);
+      await reload();
+      setHistoryOpen(false);
+    },
+    [reload, resumeId],
+  );
+
   return (
     <div className="flex h-screen flex-col">
       <header className="rule-b flex shrink-0 items-center justify-between px-4 py-2.5">
@@ -257,6 +268,14 @@ export default function Workbench() {
             Save
           </button>
 
+          <button
+            type="button"
+            onClick={() => setHistoryOpen(true)}
+            className="border border-ink-600 px-3 py-1.5 font-mono text-[11px] text-chalk-300 hover:border-ink-500"
+          >
+            History
+          </button>
+
           {versionId && (
             <a
               href={api.downloadUrl(versionId)}
@@ -271,13 +290,11 @@ export default function Workbench() {
       {noProviders && (
         <div className="shrink-0 border-b border-ochre/40 bg-ochre/[0.06] px-4 py-2">
           <p className="text-[12.5px] text-ochre">
-            No model provider is configured — the agent cannot run. Add an API key to{' '}
-            <code className="font-mono">.env</code> (any of{' '}
-            <code className="font-mono">ANTHROPIC_API_KEY</code>,{' '}
-            <code className="font-mono">OPENAI_API_KEY</code>,{' '}
-            <code className="font-mono">GOOGLE_GENERATIVE_AI_API_KEY</code>,{' '}
-            <code className="font-mono">OPENROUTER_API_KEY</code>) and restart the API. Editing and
-            preview work regardless.
+            No model provider is configured — the agent cannot run. Add a key in{' '}
+            <Link href="/settings" className="underline underline-offset-2 hover:text-chalk-100">
+              Settings
+            </Link>
+            . Editing and preview work regardless.
           </p>
         </div>
       )}
@@ -287,6 +304,15 @@ export default function Workbench() {
           initial={EMPTY_JOB_DRAFT}
           onClose={() => setJobDialogOpen(false)}
           onCreate={createJobTarget}
+        />
+      )}
+
+      {historyOpen && versionId && (
+        <HistoryDialog
+          currentVersionId={versionId}
+          resumeId={resumeId}
+          onClose={() => setHistoryOpen(false)}
+          onRollback={rollback}
         />
       )}
 
@@ -318,6 +344,124 @@ export default function Workbench() {
           />
         </section>
       </main>
+    </div>
+  );
+}
+
+function HistoryDialog({
+  currentVersionId,
+  resumeId,
+  onClose,
+  onRollback,
+}: {
+  currentVersionId: string;
+  resumeId: string;
+  onClose: () => void;
+  onRollback: (versionId: string) => Promise<void>;
+}) {
+  const [versions, setVersions] = useState<ResumeVersion[] | null>(null);
+  const [restoring, setRestoring] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .listVersions(resumeId)
+      .then((result) => setVersions(result.versions))
+      .catch((cause: unknown) =>
+        setError(cause instanceof Error ? cause.message : 'Could not load version history.'),
+      );
+  }, [resumeId]);
+
+  const restore = async (versionId: string) => {
+    setRestoring(versionId);
+    setError(null);
+    try {
+      await onRollback(versionId);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not restore this version.');
+    } finally {
+      setRestoring(null);
+    }
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="history-title"
+      className="fixed inset-0 z-50 grid place-items-center bg-ink-900/85 p-4 backdrop-blur-sm"
+    >
+      <section className="w-full max-w-2xl border border-ink-600 bg-ink-850 shadow-2xl shadow-black/50">
+        <header className="rule-b flex items-start justify-between gap-6 px-5 py-4">
+          <div>
+            <p className="font-mono text-[10.5px] tracking-[0.18em] text-ochre uppercase">
+              Immutable versions
+            </p>
+            <h2 id="history-title" className="mt-1 text-[19px] text-chalk-100">
+              Document history
+            </h2>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-ink-500">
+              Restoring creates a new version; nothing in this list is overwritten or deleted.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="font-mono text-[11px] text-ink-500 hover:text-chalk-300"
+          >
+            Close
+          </button>
+        </header>
+
+        <div className="max-h-[60vh] overflow-y-auto px-5">
+          {versions === null && !error && (
+            <p className="py-6 text-sm text-ink-500">Loading history…</p>
+          )}
+          {versions?.map((version) => {
+            const current = version.id === currentVersionId;
+            return (
+              <article
+                key={version.id}
+                className="flex items-start justify-between gap-6 border-b border-ink-700 py-4 last:border-0"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <h3 className="text-[14px] text-chalk-200">{version.summary}</h3>
+                    {current && (
+                      <span className="font-mono text-[10px] tracking-wider text-added uppercase">
+                        Current
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 font-mono text-[10.5px] text-ink-500">
+                    {version.createdBy === 'agent' ? 'Agent edit' : 'Your edit'} ·{' '}
+                    {new Date(version.createdAt).toLocaleString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                </div>
+                {!current && (
+                  <button
+                    type="button"
+                    onClick={() => void restore(version.id)}
+                    disabled={restoring !== null}
+                    className="shrink-0 border border-ink-600 px-3 py-1.5 font-mono text-[10.5px] text-chalk-300 hover:border-ochre hover:text-ochre disabled:opacity-30"
+                  >
+                    {restoring === version.id ? 'Restoring…' : 'Restore'}
+                  </button>
+                )}
+              </article>
+            );
+          })}
+        </div>
+
+        {error && (
+          <p className="border-t border-ink-700 px-5 py-3 text-[12px] text-strike">{error}</p>
+        )}
+      </section>
     </div>
   );
 }

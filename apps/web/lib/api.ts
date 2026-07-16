@@ -1,4 +1,4 @@
-import type { LatexDiagnostic, ResumeTree, ResumeVersion } from '@sailor/core';
+import type { LatexDiagnostic, PublicCredential, ResumeTree, ResumeVersion } from '@sailor/core';
 
 export const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -62,11 +62,16 @@ export const api = {
 
   models: () => json<{ providers: ProviderInfo[] }>('/api/models'),
 
+  listCredentials: () => json<{ credentials: PublicCredential[] }>('/api/credentials'),
+
   addKey: (provider: string, apiKey: string) =>
     json<{ ok: true }>('/api/credentials', {
       method: 'POST',
       body: JSON.stringify({ provider, apiKey, label: `${provider} key` }),
     }),
+
+  deleteKey: (provider: string) =>
+    json<{ ok: true }>(`/api/credentials/${provider}`, { method: 'DELETE' }),
 
   createJob: (input: {
     company: string;
