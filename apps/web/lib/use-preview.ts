@@ -1,12 +1,18 @@
 'use client';
 
 import type { LatexDiagnostic, ResumeTree } from '@sailor/core';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CompileResponse } from './preview.worker.ts';
 
 export type PreviewState = {
-  /** Blob URL of the last PDF that compiled. Survives a failing edit on purpose. */
-  url: string | null;
+  /**
+   * Bytes of the last PDF that compiled. Survives a failing edit on purpose.
+   *
+   * Bytes rather than a Blob URL because the viewer renders to a canvas and
+   * needs the document itself — a URL would only get us back to an iframe, which
+   * exposes no text selection or page coordinates.
+   */
+  pdf: ArrayBuffer | null;
   compiling: boolean;
   /** Set when the *current* source does not compile. `url` still shows the last good one. */
   error: { summary: string; diagnostics: LatexDiagnostic[] } | null;
@@ -23,26 +29,14 @@ export type PreviewState = {
 export function usePreview(tree: ResumeTree | null): PreviewState {
   const workerRef = useRef<Worker | null>(null);
   const seqRef = useRef(0);
-  // Tracked separately from state so revoke() can run without re-rendering.
-  const urlRef = useRef<string | null>(null);
 
   const [state, setState] = useState<PreviewState>({
-    url: null,
+    pdf: null,
     compiling: false,
     error: null,
     durationMs: null,
     cached: false,
   });
-
-  const swap = useCallback((pdf: ArrayBuffer) => {
-    const next = URL.createObjectURL(new Blob([pdf], { type: 'application/pdf' }));
-    // Revoke the *old* url only after the new one exists, so there is never an
-    // instant where the iframe has nothing to show.
-    const previous = urlRef.current;
-    urlRef.current = next;
-    if (previous) URL.revokeObjectURL(previous);
-    return next;
-  }, []);
 
   useEffect(() => {
     // Pre-warm: instantiate the worker the moment the editor mounts, not on the
@@ -71,8 +65,10 @@ export function usePreview(tree: ResumeTree | null): PreviewState {
         return;
       }
 
+      // A new buffer identity is what tells the viewer to re-render, so the
+      // previous one is replaced rather than mutated.
       setState({
-        url: swap(message.pdf),
+        pdf: message.pdf,
         compiling: false,
         error: null,
         durationMs: message.durationMs,
@@ -80,12 +76,8 @@ export function usePreview(tree: ResumeTree | null): PreviewState {
       });
     };
 
-    return () => {
-      worker.terminate();
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-      urlRef.current = null;
-    };
-  }, [swap]);
+    return () => worker.terminate();
+  }, []);
 
   useEffect(() => {
     if (!tree || !workerRef.current) return;

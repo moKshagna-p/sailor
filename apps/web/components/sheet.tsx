@@ -1,6 +1,7 @@
 'use client';
 
 import type { PreviewState } from '../lib/use-preview.ts';
+import { PdfView } from './pdf-view.tsx';
 
 /**
  * The PDF, presented as an actual sheet of paper on the desk. This is the only
@@ -29,14 +30,8 @@ export function Sheet({ state }: { state: PreviewState }) {
       </header>
 
       <div className="relative flex-1 overflow-hidden p-6">
-        {state.url ? (
-          <iframe
-            key="sheet"
-            src={`${state.url}#toolbar=0&navpanes=0&view=FitH`}
-            title="Résumé preview"
-            className="h-full w-full bg-sheet shadow-[0_20px_60px_-15px_rgba(0,0,0,0.7)]"
-            style={{ borderRadius: 'var(--radius-sheet)' }}
-          />
+        {state.pdf ? (
+          <PdfView data={state.pdf} />
         ) : (
           <div className="flex h-full items-center justify-center">
             <p className="font-mono text-xs text-ink-500">
