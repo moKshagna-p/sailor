@@ -155,6 +155,9 @@ const app = new Elysia()
             ? ('code-paste' as const)
             : ('redirect' as const)
           : null,
+        // Only populated when OAuth is possible but unconfigured, so the UI can
+        // say what is missing rather than silently omitting a button.
+        oauthMissingEnv: d.oauth ? [] : (d.oauthRequires ?? []),
         models: d.models,
       })),
     };

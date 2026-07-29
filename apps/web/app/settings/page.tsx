@@ -9,8 +9,16 @@ const PROVIDER_HELP: Record<string, string> = {
   anthropic: 'Claude models',
   openai: 'GPT models',
   google: 'Gemini models',
-  openrouter: 'OpenRouter models',
+  openrouter: 'Claude, GPT, Gemini and more through one account',
 };
+
+/**
+ * A provider you can connect right now, with no API key to find and nothing for
+ * an operator to configure first. Derived rather than hardcoded to a provider
+ * id, so a future registration-free driver surfaces here on its own.
+ */
+const isOneClick = (p: ProviderInfo): boolean =>
+  p.oauthFlow === 'redirect' && p.oauthMissingEnv.length === 0;
 
 export default function SettingsPage() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -105,6 +113,29 @@ export default function SettingsPage() {
       )}
       {error && (
         <p className="mt-7 border-l-2 border-strike py-1 pl-3 text-sm text-strike">{error}</p>
+      )}
+
+      {!loading && credentials.length === 0 && providers.some(isOneClick) && (
+        <section className="mt-10 border border-ochre/40 bg-ochre/[0.04] p-5">
+          <h2 className="font-mono text-[11px] tracking-widest text-ochre uppercase">
+            Fastest way in
+          </h2>
+          {providers.filter(isOneClick).map((provider) => (
+            <div key={provider.id}>
+              <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-chalk-300">
+                <strong className="text-chalk-100">{provider.label}</strong> needs no API key and no
+                setup. Approve it once and Sailor gets a key of its own, which reaches Claude, GPT
+                and Gemini through a single connection — including models that cost nothing to run.
+              </p>
+              <a
+                href={api.oauthAuthorizeUrl(provider.id)}
+                className="mt-4 inline-block bg-ochre px-4 py-2 font-mono text-[11px] text-ink-900 hover:bg-ochre/85"
+              >
+                Connect {provider.label}
+              </a>
+            </div>
+          ))}
+        </section>
       )}
 
       <section className="mt-12">
@@ -220,8 +251,21 @@ function ProviderRow({
           >
             Connect {provider.label} account
           </a>
-          <span className="font-mono text-[11px] text-ink-500">or paste an API key below</span>
+          <span className="font-mono text-[11px] text-ink-500">
+            {isOneClick(provider) ? 'no API key needed' : 'or paste an API key below'}
+          </span>
         </div>
+      )}
+
+      {/* An OAuth-capable provider with no button is otherwise indistinguishable
+          from one that simply has no OAuth. Say which it is. */}
+      {!credential && provider.oauthFlow === null && provider.oauthMissingEnv.length > 0 && (
+        <p className="mt-4 max-w-xl font-mono text-[11px] leading-relaxed text-ink-500">
+          {provider.label} supports connecting an account, but this server has not been set up for
+          it. An operator needs to register an OAuth app and set{' '}
+          <span className="text-chalk-300">{provider.oauthMissingEnv.join(' and ')}</span>. Until
+          then, use an API key.
+        </p>
       )}
 
       {!credential && provider.oauthFlow === 'code-paste' && (

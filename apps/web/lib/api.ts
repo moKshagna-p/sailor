@@ -34,6 +34,13 @@ export type ProviderInfo = {
    * API key only (for now).
    */
   oauthFlow: 'redirect' | 'code-paste' | null;
+  /**
+   * Environment variables this deployment is missing before the provider could
+   * offer an account connection. Non-empty only when the provider *has* OAuth
+   * but this server has not been configured for it — which is what lets the UI
+   * say "not set up here" instead of silently hiding the button.
+   */
+  oauthMissingEnv: string[];
   models: Array<{
     provider: string;
     modelId: string;
