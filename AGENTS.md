@@ -102,6 +102,14 @@ keeps API keys and OAuth tokens out of the client bundle.
   error, hint }`) — never a thrown exception that kills the turn. The agent is
   expected to read the error and try again; give it enough to do that.
 
+### Commits
+- **Subject line only**, `type(scope): what changed`, lowercase, under ~70 chars.
+  Add a body only when the *why* is genuinely non-obvious, and keep it to a
+  sentence or two — the code and these docs are where reasoning belongs.
+- Split by logical change, not by file. Every commit must typecheck on its own.
+- **No `Co-Authored-By` trailer, and no tool attribution of any kind.** Same for
+  PR bodies. Authorship is the human running the tool.
+
 ---
 
 ## The agent's tools

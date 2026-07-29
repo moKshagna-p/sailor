@@ -63,6 +63,12 @@ driver currently exposes an `oauth` descriptor (`oauthFlow` in
 `GET /api/models`), alongside the API-key form — plus a paste-the-code field
 for `code-paste` providers.
 
+A provider that *could* do OAuth but has not been configured on this deployment
+reports its missing variables as `oauthMissingEnv`, sourced from the driver's
+`oauthRequires`. Settings uses that to say "not set up here, an operator needs
+to set X" rather than silently omitting the button, which is indistinguishable
+from the provider having no OAuth at all.
+
 The state and PKCE verifier are in API memory only and are deleted on use or
 expiry. Access and refresh tokens never pass through a browser response. For a
 multi-instance deployment, replace this in-memory short-lived state store with a
@@ -76,4 +82,29 @@ OpenAI OAuth needs `OPENAI_OAUTH_CLIENT_ID` (and optionally
 API listener. Each provider's OAuth app must register
 `/api/oauth/<provider>/callback` as its redirect URI.
 
-OpenRouter intentionally has no OAuth descriptor because it is API-key-only.
+## OpenRouter: the zero-setup path
+
+OpenRouter is the only provider that needs no configuration from anyone. There
+is no client to register and no secret to set, because OpenRouter identifies the
+app by its callback URL and accepts localhost on any port. That makes it the
+only route by which a brand-new user holding no API key at all can reach a
+working model, so Settings leads with it whenever no credential exists yet.
+
+Its flow is OAuth-shaped but does not end in a token: `POST /api/v1/auth/keys`
+returns a durable API key scoped to the user. Two consequences shaped the code:
+
+- `exchangeCode` returns an `ExchangedCredential`, a union of `{ kind: 'oauth' }`
+  and `{ kind: 'api_key' }`. A sign-in flow and the credential it produces are
+  independent, and forcing OpenRouter's key into the token shape would mean
+  inventing an expiry it does not have — after which the refresh path would fire
+  against a provider that has no refresh endpoint.
+- OpenRouter's consent URL spells the redirect `callback_url` and has no `state`
+  parameter, so its driver implements `buildAuthorizationUrl` and threads state
+  through the callback URL's own query string, which OpenRouter preserves when
+  it appends `?code=`. The callback route still gets the state it needs to bind
+  the response to the user who began the flow; the quirk stays in the driver
+  instead of leaking a special case into the API route.
+
+Its curated model list includes two free, tool-capable slugs. Tool support is
+the constraint — most free models lack it, and a model that cannot call tools is
+useless to this agent no matter how cheap it is.

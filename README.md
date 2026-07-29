@@ -111,14 +111,21 @@ bun run dev                     # web on :3000, api on :3001
 ```
 
 Then open http://localhost:3000, create a resume (a starter template compiles out
-of the box), and add a model credential in **Settings**. API keys are verified
-against the provider before they're stored — a typo'd key is rejected with a 401,
-not saved and discovered mid-conversation. Anthropic accounts can also connect
-via OAuth, with one honest caveat: Anthropic only permits subscription tokens
-inside Claude Code, so for Sailor you want an API key from
-[console.anthropic.com](https://console.anthropic.com). OpenAI, Google, and
-OpenRouter work with API keys (OAuth for the first two needs your own client
-credentials — see [docs/providers.md](docs/providers.md)).
+of the box), and connect a model in **Settings**.
+
+If you don't already have an API key, use **Connect OpenRouter**. It needs no key
+and no configuration — approve it once and Sailor receives a key of its own,
+reaching Claude, GPT, and Gemini through a single connection, including two
+free tool-capable models so a zero-credit account still gets a working agent.
+
+Otherwise paste an API key for any provider. Keys are verified with the provider
+before they're stored, so a typo is rejected immediately rather than discovered
+mid-conversation. Two caveats worth knowing up front: connecting an Anthropic
+account gives you a Claude *subscription* token, which Anthropic permits only
+inside Claude Code — for Sailor you want an API key from
+[console.anthropic.com](https://console.anthropic.com). And OpenAI and Google
+OAuth need you to register your own OAuth app first; Settings will tell you which
+variables are missing. See [docs/providers.md](docs/providers.md) for both.
 
 ### Using Sailor from Claude Code, Zed, or Cursor
 
@@ -143,8 +150,9 @@ The full house rules live in [AGENTS.md](AGENTS.md).
 
 ## Status
 
-Under active development. Recent: provider key verification, the Anthropic
-code-paste OAuth flow, and SyncTeX groundwork for click-the-PDF-to-jump-to-source.
-Next up: a PDF.js preview with a selection menu (jump to source / ask the agent),
-real multi-user auth, and a browser WASM compile engine behind the existing
-worker seam.
+Under active development. Recent: one-click OpenRouter sign-in that needs no API
+key or client registration, provider key verification, the Anthropic code-paste
+OAuth flow, and SyncTeX groundwork for click-the-PDF-to-jump-to-source. Next up:
+a PDF.js preview with a selection menu (jump to source / ask the agent), real
+multi-user auth, and a browser WASM compile engine behind the existing worker
+seam.
