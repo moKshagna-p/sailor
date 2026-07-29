@@ -241,22 +241,31 @@ const app = new Elysia()
       expiresAt: Date.now() + OAUTH_ATTEMPT_TTL_MS,
     });
 
-    const redirect = new URL(oauth.authorizationUrl);
-    redirect.searchParams.set('client_id', oauth.clientId);
+    const codeChallenge = codeVerifier ? await pkceChallenge(codeVerifier) : null;
     // Code-paste clients only allow the provider's own code page as the target;
     // everyone else comes back to our /callback route.
-    redirect.searchParams.set(
-      'redirect_uri',
-      oauth.codePaste?.redirectUri ?? oauthCallbackUrl(provider),
-    );
+    const redirectUri = oauth.codePaste?.redirectUri ?? oauthCallbackUrl(provider);
+
+    // Providers that spell the authorize parameters their own way build the URL
+    // themselves; the rest get standard OAuth 2.0.
+    if (oauth.buildAuthorizationUrl) {
+      return Response.redirect(
+        oauth.buildAuthorizationUrl({ redirectUri, state, codeChallenge }),
+        302,
+      );
+    }
+
+    const redirect = new URL(oauth.authorizationUrl);
+    if (oauth.clientId) redirect.searchParams.set('client_id', oauth.clientId);
+    redirect.searchParams.set('redirect_uri', redirectUri);
     redirect.searchParams.set('response_type', 'code');
     redirect.searchParams.set('scope', oauth.scopes.join(' '));
     redirect.searchParams.set('state', state);
     for (const [name, value] of Object.entries(oauth.authorizationParams ?? {})) {
       redirect.searchParams.set(name, value);
     }
-    if (codeVerifier) {
-      redirect.searchParams.set('code_challenge', await pkceChallenge(codeVerifier));
+    if (codeChallenge) {
+      redirect.searchParams.set('code_challenge', codeChallenge);
       redirect.searchParams.set('code_challenge_method', 'S256');
     }
 
