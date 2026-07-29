@@ -28,8 +28,26 @@ new version row created.
 
 The editor owns a dedicated Web Worker. It debounces edits by 400 ms, hashes a
 canonicalized tree, caches recent successful PDFs, cancels superseded work, and
-keeps the last good Blob URL visible during an in-flight or failing build. This
-is why an invalid keystroke shows diagnostics without flashing a blank sheet.
+hands the main thread the bytes of the last good PDF during an in-flight or
+failing build. This is why an invalid keystroke shows diagnostics without
+flashing a blank sheet.
+
+The PDF is drawn by pdf.js — a canvas per page with a selectable text layer over
+it — not a native `<iframe>`. An iframe rendered fine but exposed no selection
+and no page coordinates, which made mapping a click back to a source line
+impossible. Two constraints came out of building it:
+
+- pdf.js must be imported *inside* an effect. `'use client'` marks where
+  hydration starts, not where a module runs; Next still evaluates the component
+  on the server, where pdf.js's module-scope `DOMMatrix` does not exist.
+- It must be the `legacy/` build. pdf.js 6 calls
+  `Map.prototype.getOrInsertComputed`, which current Chrome does not implement,
+  so the default build throws on the first `page.render()`.
+
+Keeping the sheet from flashing is deliberate here rather than incidental: pages
+are rendered into a detached fragment and attached in a single
+`replaceChildren`, so the previous render stays on screen for the whole of the
+next compile.
 
 The worker exposes a `CompileEngine` seam for the planned browser WASM compiler.
 At present its sole engine calls the server's Tectonic endpoint, so the preview
