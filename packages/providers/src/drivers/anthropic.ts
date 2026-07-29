@@ -108,6 +108,7 @@ export const anthropicDriver: ProviderDriver = {
       });
       const token = await readOAuthTokens(res, 'anthropic');
       return {
+        kind: 'oauth',
         accessToken: token.accessToken,
         refreshToken: token.refreshToken,
         expiresAt: Date.now() + token.expiresInSeconds * 1000,

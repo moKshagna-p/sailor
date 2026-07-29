@@ -12,6 +12,20 @@ export const credentialStore: CredentialStore = {
   },
 
   async save(userId, provider, next) {
+    // A sign-in flow does not imply a token. OpenRouter's consent screen ends by
+    // minting a durable API key, so what gets stored follows the credential's
+    // own kind rather than the shape of the flow that produced it.
+    if (next.kind === 'api_key') {
+      await upsertCredential({
+        userId,
+        provider,
+        kind: 'api_key',
+        label: `${provider} (connected)`,
+        secret: next.apiKey,
+      });
+      return;
+    }
+
     await upsertCredential({
       userId,
       provider,

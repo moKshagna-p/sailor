@@ -21,6 +21,7 @@ export const openaiDriver: ProviderDriver = {
   id: 'openai',
   label: 'OpenAI',
   supports: ['api_key', 'oauth'],
+  oauthRequires: ['OPENAI_OAUTH_CLIENT_ID'],
   models: [
     {
       provider: 'openai',
@@ -79,6 +80,7 @@ export const openaiDriver: ProviderDriver = {
             });
             const token = await readOAuthTokens(res, 'openai');
             return {
+              kind: 'oauth',
               accessToken: token.accessToken,
               refreshToken: token.refreshToken,
               expiresAt: Date.now() + token.expiresInSeconds * 1000,

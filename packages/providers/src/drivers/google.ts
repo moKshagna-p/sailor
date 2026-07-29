@@ -22,6 +22,7 @@ export const googleDriver: ProviderDriver = {
   id: 'google',
   label: 'Google Gemini',
   supports: ['api_key', 'oauth'],
+  oauthRequires: ['GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET'],
   models: [
     {
       provider: 'google',
@@ -93,6 +94,7 @@ export const googleDriver: ProviderDriver = {
             });
             const token = await readOAuthTokens(res, 'google');
             return {
+              kind: 'oauth',
               accessToken: token.accessToken,
               refreshToken: token.refreshToken,
               expiresAt: Date.now() + token.expiresInSeconds * 1000,

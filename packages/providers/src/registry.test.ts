@@ -15,13 +15,16 @@ function fakeStore(initial: Stored | null): CredentialStore & { saved: unknown[]
     },
     async save(_userId: string, provider: ProviderId, next) {
       saved.push(next);
-      current = {
-        kind: 'oauth',
-        provider,
-        accessToken: next.accessToken,
-        expiresAt: next.expiresAt,
-        refreshToken: next.refreshToken,
-      };
+      current =
+        next.kind === 'api_key'
+          ? { kind: 'api_key', provider, apiKey: next.apiKey, refreshToken: null }
+          : {
+              kind: 'oauth',
+              provider,
+              accessToken: next.accessToken,
+              expiresAt: next.expiresAt,
+              refreshToken: next.refreshToken,
+            };
     },
   };
 }

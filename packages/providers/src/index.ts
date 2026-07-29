@@ -1,6 +1,7 @@
 export {
   assertSupports,
   CredentialMismatchError,
+  type ExchangedCredential,
   type OAuthConfig,
   type OAuthTokens,
   type ProviderDriver,

@@ -1,6 +1,6 @@
 import type { ModelInfo, ProviderId, ResolvedCredential } from '@sailor/core';
 import type { LanguageModel } from 'ai';
-import type { ProviderDriver } from './driver.ts';
+import type { ExchangedCredential, ProviderDriver } from './driver.ts';
 import { anthropicDriver } from './drivers/anthropic.ts';
 import { googleDriver } from './drivers/google.ts';
 import { openaiDriver } from './drivers/openai.ts';
@@ -34,15 +34,7 @@ export type CredentialStore = {
     userId: string,
     provider: ProviderId,
   ): Promise<(ResolvedCredential & { refreshToken: string | null }) | null>;
-  save(
-    userId: string,
-    provider: ProviderId,
-    next: {
-      accessToken: string;
-      refreshToken: string | null;
-      expiresAt: number;
-    },
-  ): Promise<void>;
+  save(userId: string, provider: ProviderId, next: ExchangedCredential): Promise<void>;
 };
 
 /**
@@ -75,7 +67,7 @@ export async function resolveCredential(args: {
     }
 
     const next = await driver.refresh(stored.refreshToken);
-    await store.save(userId, provider, next);
+    await store.save(userId, provider, { kind: 'oauth', ...next });
     return {
       kind: 'oauth',
       provider,

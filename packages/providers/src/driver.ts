@@ -9,12 +9,28 @@ export type OAuthTokens = {
 };
 
 /**
+ * What an authorization code turns into.
+ *
+ * Most providers hand back an expiring access token. OpenRouter instead mints a
+ * durable API key at the end of its consent flow. So the *shape of the sign-in*
+ * and the *kind of credential it produces* are independent, and conflating them
+ * would force a fake expiry onto a key that has none.
+ */
+export type ExchangedCredential =
+  | { kind: 'oauth'; accessToken: string; refreshToken: string | null; expiresAt: number }
+  | { kind: 'api_key'; apiKey: string };
+
+/**
  * Everything the API needs to run an OAuth authorization-code flow, while the
  * driver retains ownership of provider-specific URLs, scopes, and token calls.
  * `clientId` is public; secrets never leave the driver process environment.
  */
 export type OAuthConfig = {
-  clientId: string;
+  /**
+   * Null for providers that need no client registration at all — OpenRouter
+   * identifies the app by its callback URL, so there is nothing to configure.
+   */
+  clientId: string | null;
   authorizationUrl: string;
   scopes: readonly string[];
   authorizationParams?: Readonly<Record<string, string>>;
@@ -27,13 +43,28 @@ export type OAuthConfig = {
    * instead of being redirected back to Sailor.
    */
   codePaste?: { redirectUri: string };
+  /**
+   * Overrides the standard OAuth 2.0 authorize URL (`client_id`, `redirect_uri`,
+   * `response_type`, `scope`, `state`, plus PKCE). Providers that spell those
+   * parameters differently own that difference here rather than leaking a
+   * special case into the API route.
+   *
+   * A provider with no `state` parameter must carry `state` through some other
+   * channel it does preserve — the callback URL's own query string, say — because
+   * the callback route treats state as the authoritative user binding.
+   */
+  buildAuthorizationUrl?(args: {
+    redirectUri: string;
+    state: string;
+    codeChallenge: string | null;
+  }): string;
   exchangeCode(args: {
     code: string;
     /** Echoed by code-paste providers and required in their token exchange. */
     state: string | null;
     redirectUri: string;
     codeVerifier: string | null;
-  }): Promise<OAuthTokens>;
+  }): Promise<ExchangedCredential>;
 };
 
 /**
@@ -65,6 +96,16 @@ export type ProviderDriver = {
 
   /** Omit this for API-key-only drivers or OAuth clients not configured here. */
   oauth?: OAuthConfig;
+
+  /**
+   * Environment variables an operator must set before `oauth` appears.
+   *
+   * Declared even when OAuth *is* configured, because the point is to let the UI
+   * distinguish "this provider cannot do OAuth" from "this deployment has not
+   * set it up yet" — a missing Connect button with no explanation reads as a
+   * bug. Absent when the provider needs no configuration at all.
+   */
+  oauthRequires?: readonly string[];
 
   /**
    * Exchange a refresh token for a new access token. Only meaningful for
