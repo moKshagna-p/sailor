@@ -1,7 +1,7 @@
-import { expect, test } from 'bun:test';
+import { beforeAll, expect, test } from 'bun:test';
 import type { ResumeTree } from '@sailor/core';
 import { locateSource, parseSyncTex } from './synctex.ts';
-import { compileWithTectonic } from './tectonic.ts';
+import { compileWithTectonic, prewarm } from './tectonic.ts';
 
 // A tiny document whose section commands sit on lines we can assert against.
 // Line numbers are 1-based and count every line below, including the first.
@@ -19,13 +19,16 @@ const TREE: ResumeTree = {
   files: [{ path: 'resume.tex', content: DOC }],
 };
 
+// Pay the CTAN download once, not inside a test that is timing a compile. Bun
+// may run this file before latex.test.ts, so it cannot rely on that one's warm-up.
+beforeAll(async () => {
+  await prewarm();
+}, 600_000);
+
 /**
- * These tests shell out to the real Tectonic binary, and the first one to run on
- * a cold machine also pays for populating the CTAN package cache — which has
- * been observed to take 16s on its own, on top of the compiles themselves. The
- * budget is deliberately far larger than a warm run needs (~2s): the failure
- * this prevents is a false red on a cold cache, not a slow compile worth
- * catching.
+ * These tests shell out to the real Tectonic binary. Warm, each compile is ~2s;
+ * the budget is deliberately far larger because the failure worth preventing is
+ * a false red on a slow machine, not a slow compile worth catching.
  */
 const COMPILE_TIMEOUT_MS = 120_000;
 

@@ -6,6 +6,7 @@ import type { CompileResult, ResumeTree } from '@sailor/core';
 import { getEntryFile } from '@sailor/core';
 import { parseLatexLog } from './diagnostics.ts';
 import { Semaphore } from './semaphore.ts';
+import { STARTER_RESUME } from './template.ts';
 
 /**
  * The authoritative compile path. Every PDF a user downloads comes from here.
@@ -30,8 +31,12 @@ const TIMEOUT_MS = Number(process.env.LATEX_TIMEOUT_MS ?? 20_000);
  * longer than any steady-state compile ever will. Holding both to one budget
  * means either the timeout is uselessly long or cold start spuriously fails —
  * so prewarm gets its own, generous budget and normal compiles stay strict.
+ *
+ * Ten minutes because a fully cold fetch of everything the starter resume needs
+ * was measured at 226s here, on a fast connection. A CI runner is slower, and
+ * the cost of this being too small is a red build on a green tree.
  */
-const PREWARM_TIMEOUT_MS = Number(process.env.LATEX_PREWARM_TIMEOUT_MS ?? 300_000);
+const PREWARM_TIMEOUT_MS = Number(process.env.LATEX_PREWARM_TIMEOUT_MS ?? 600_000);
 
 const gate = new Semaphore(Number(process.env.LATEX_POOL_SIZE ?? 4));
 
@@ -163,25 +168,20 @@ async function readSyncTex(dir: string, entryPath: string): Promise<string | und
 let prewarmed: Promise<void> | null = null;
 
 /**
- * Compiles a trivial document once, which forces Tectonic to fetch and cache the
- * CTAN bundle. Without this the first user-facing compile eats a multi-second
- * download. Idempotent and safe to call on every boot.
+ * Compiles the starter resume once, which forces Tectonic to fetch and cache the
+ * CTAN packages a real document needs. Without this the first user-facing
+ * compile eats a multi-second download. Idempotent and safe to call on boot.
+ *
+ * It warms with the actual template rather than a bare `\documentclass{article}`
+ * on purpose. The trivial document only pulls the base bundle, leaving geometry,
+ * titlesec, enumitem and hyperref to be downloaded by the first real compile —
+ * which is the one this exists to make fast, and which then blows the normal
+ * compile budget on a cold machine.
  */
 export function prewarm(): Promise<void> {
   prewarmed ??= (async () => {
     const started = performance.now();
-    const result = await compileWithTectonic(
-      {
-        entry: 'warm.tex',
-        files: [
-          {
-            path: 'warm.tex',
-            content: '\\documentclass{article}\\begin{document}warm\\end{document}',
-          },
-        ],
-      },
-      { timeoutMs: PREWARM_TIMEOUT_MS },
-    );
+    const result = await compileWithTectonic(STARTER_RESUME, { timeoutMs: PREWARM_TIMEOUT_MS });
     const ms = Math.round(performance.now() - started);
     if (result.ok) {
       console.warn(`[latex] tectonic cache warm (${ms}ms)`);

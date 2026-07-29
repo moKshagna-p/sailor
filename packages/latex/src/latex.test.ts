@@ -5,7 +5,7 @@ import { STARTER_RESUME } from './template.ts';
 // Pay the CTAN download once, not inside a test that is timing a compile.
 beforeAll(async () => {
   await prewarm();
-}, 300_000);
+}, 600_000);
 
 test('the starter resume compiles to a real PDF', async () => {
   const result = await compileWithTectonic(STARTER_RESUME);
