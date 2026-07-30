@@ -152,7 +152,7 @@ The full house rules live in [AGENTS.md](AGENTS.md).
 
 Under active development. Recent: one-click OpenRouter sign-in that needs no API
 key or client registration, provider key verification, the Anthropic code-paste
-OAuth flow, and SyncTeX groundwork for click-the-PDF-to-jump-to-source. Next up:
-a PDF.js preview with a selection menu (jump to source / ask the agent), real
-multi-user auth, and a browser WASM compile engine behind the existing worker
-seam.
+OAuth flow, and a pdf.js preview you can click to land on the LaTeX that produced
+what you clicked. Next up: a selection menu on the preview (jump to source / ask
+the agent about this line), real multi-user auth, and a browser WASM compile
+engine behind the existing worker seam.

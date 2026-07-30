@@ -51,7 +51,9 @@ of relying on a chat message to survive a refresh.
 
 1. The browser creates or loads a resume through the API.
 2. The editor previews source through a worker and the authoritative compile
-   endpoint. Saved versions are compiled server-side before persistence.
+   endpoint, which returns a SyncTeX map alongside the PDF so a click on the
+   preview resolves to the line that produced it. Saved versions are compiled
+   server-side before persistence.
 3. The browser creates a job target with `POST /api/jobs`, then opens an ACP
    session carrying the resume id, model ref, and job target id.
 4. The API resolves the user's credential through `@sailor/providers`, including
