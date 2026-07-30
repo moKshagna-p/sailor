@@ -24,32 +24,23 @@
  * The box's reference point is its lower-left; `H`+`D` is its full height. The
  * caller converts a PDF point (origin top-left, PDF points) into sp before
  * asking — see `pdfPointToSp`.
+ *
+ * ## This file runs in the browser too
+ *
+ * It is reachable as `@sailor/latex/synctex`, a subpath that pulls in nothing but
+ * `@sailor/core`. The map is produced by the server, which is where the compiler
+ * is, but the hit-testing happens where the clicks are. Keep it free of `node:`
+ * imports.
  */
+
+import type { SyncTexBox, SyncTexMap } from '@sailor/core';
 
 const SP_PER_PT = 65536;
 /** PDF/PostScript points per inch vs. TeX points per inch. */
 const PDF_PT_PER_INCH = 72;
 const TEX_PT_PER_INCH = 72.27;
 
-export type SyncTexBox = {
-  page: number;
-  tag: number;
-  line: number;
-  /** All in scaled points, PDF-style: origin top-left, y grows downward. */
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-};
-
-export type SyncTexMap = {
-  /** Tag → source path, exactly as SyncTeX recorded it (absolute scratch paths). */
-  files: Map<number, string>;
-  boxes: SyncTexBox[];
-  unit: number;
-  xOffset: number;
-  yOffset: number;
-};
+export type { SyncTexBox, SyncTexMap };
 
 export type SourceLocation = { file: string; line: number };
 
@@ -123,7 +114,13 @@ export function parseSyncTex(raw: string): SyncTexMap {
     });
   }
 
-  return { files, boxes, unit, xOffset, yOffset };
+  return {
+    files: [...files].map(([tag, path]) => ({ tag, path })),
+    boxes,
+    unit,
+    xOffset,
+    yOffset,
+  };
 }
 
 /**
@@ -185,6 +182,6 @@ export function locateSource(
 
   const hit = bestContaining ?? nearest;
   if (!hit) return null;
-  const file = map.files.get(hit.tag);
-  return file ? { file, line: hit.line } : null;
+  const file = map.files.find((f) => f.tag === hit.tag);
+  return file ? { file: file.path, line: hit.line } : null;
 }

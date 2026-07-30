@@ -1,5 +1,5 @@
 import { beforeAll, expect, test } from 'bun:test';
-import type { ResumeTree } from '@sailor/core';
+import { type ResumeTree, SyncTexMap } from '@sailor/core';
 import { locateSource, parseSyncTex } from './synctex.ts';
 import { compileWithTectonic, prewarm } from './tectonic.ts';
 
@@ -18,6 +18,20 @@ const TREE: ResumeTree = {
   entry: 'resume.tex',
   files: [{ path: 'resume.tex', content: DOC }],
 };
+
+// One box on one page, written by hand: enough to exercise the wire format
+// without paying for a compile.
+const SYNTHETIC = `SyncTeX Version:1
+Input:1:/tmp/scratch/resume.tex
+Unit:1
+X Offset:0
+Y Offset:0
+Content:
+{1
+[1,3:8799519,8865055:22609920,642672,183080
+]
+}1
+`;
 
 // Pay the CTAN download once, not inside a test that is timing a compile. Bun
 // may run this file before latex.test.ts, so it cannot rely on that one's warm-up.
@@ -59,7 +73,7 @@ test(
     const map = parseSyncTex(result.synctex);
 
     // Exactly one input file, and it is ours.
-    expect([...map.files.values()].some((p) => p.endsWith('resume.tex'))).toBe(true);
+    expect(map.files.some((f) => f.path.endsWith('resume.tex'))).toBe(true);
     expect(map.boxes.length).toBeGreaterThan(0);
 
     // Both section headings produced visible material and must appear as boxes.
@@ -103,8 +117,35 @@ test(
   COMPILE_TIMEOUT_MS,
 );
 
+/**
+ * The map is made on the server and hit-tested in the browser, so it has to
+ * survive JSON and the schema at the far end. This is the test that fails if
+ * someone puts a `Map` or a `Set` back into it — the shape would still typecheck
+ * everywhere except the one place it matters.
+ */
+test('a parsed map survives the trip to a browser', () => {
+  const map = parseSyncTex(SYNTHETIC);
+  expect(map.boxes).toHaveLength(1);
+
+  const arrived = SyncTexMap.parse(JSON.parse(JSON.stringify(map)));
+  expect(arrived).toEqual(map);
+
+  // And it is still answerable on the other side.
+  const box = arrived.boxes[0];
+  expect(box).toBeDefined();
+  if (!box) return;
+  const centre = (low: number, size: number) => ((low + size / 2) / 65536) * (72 / 72.27);
+  expect(
+    locateSource(arrived, {
+      page: 1,
+      x: centre(box.left, box.width),
+      y: centre(box.top, box.height),
+    }),
+  ).toEqual({ file: '/tmp/scratch/resume.tex', line: 3 });
+});
+
 test('parseSyncTex tolerates junk without throwing', () => {
   const map = parseSyncTex('not\na\nreal\nsynctex\nfile');
   expect(map.boxes).toHaveLength(0);
-  expect(map.files.size).toBe(0);
+  expect(map.files).toHaveLength(0);
 });

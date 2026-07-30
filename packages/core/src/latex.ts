@@ -36,6 +36,38 @@ export type CompileErr = {
 
 export type CompileResult = CompileOk | CompileErr;
 
+/** One box of typeset material, and the source line that produced it. */
+export const SyncTexBox = z.object({
+  page: z.number().int().positive(),
+  tag: z.number().int(),
+  line: z.number().int().positive(),
+  /** All in scaled points, PDF-style: origin top-left, y grows downward. */
+  left: z.number(),
+  top: z.number(),
+  width: z.number(),
+  height: z.number(),
+});
+export type SyncTexBox = z.infer<typeof SyncTexBox>;
+
+/**
+ * A parsed SyncTeX map. The server produces it; the browser hit-tests clicks
+ * against it, so it lives here — it crosses a process boundary.
+ *
+ * `files` is an array of tag/path pairs rather than a map keyed by tag because
+ * this travels as JSON. A document has one or two input files, so looking a tag
+ * up linearly costs nothing, and the alternative — a serialise/deserialise pair
+ * around a `Map<number, string>` — is two more places to drift.
+ */
+export const SyncTexMap = z.object({
+  files: z.array(z.object({ tag: z.number().int(), path: z.string() })),
+  boxes: z.array(SyncTexBox),
+  /** Scaled-points-per-unit multiplier, and the offsets added to every coordinate. */
+  unit: z.number(),
+  xOffset: z.number(),
+  yOffset: z.number(),
+});
+export type SyncTexMap = z.infer<typeof SyncTexMap>;
+
 /** Collapse diagnostics into something short enough to hand back to a model. */
 export function summariseDiagnostics(diagnostics: LatexDiagnostic[], limit = 5): string {
   const errors = diagnostics.filter((d) => d.severity === 'error');
