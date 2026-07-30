@@ -1,11 +1,12 @@
 'use client';
 
 import type { ResumeTree, ResumeVersion } from '@sailor/core';
+import type { SourceLocation } from '@sailor/latex/synctex';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Chat, type ChatItem, reduceEvent } from '../../../components/chat.tsx';
-import { Editor } from '../../../components/editor.tsx';
+import { Editor, type EditorHandle } from '../../../components/editor.tsx';
 import { Sheet } from '../../../components/sheet.tsx';
 import { AcpClient, type ElicitAsk, type PermissionAsk } from '../../../lib/acp-client.ts';
 import { api, type ProviderInfo } from '../../../lib/api.ts';
@@ -50,6 +51,7 @@ export default function Workbench() {
 
   const clientRef = useRef<AcpClient | null>(null);
   const sessionRef = useRef<string | null>(null);
+  const editorRef = useRef<EditorHandle | null>(null);
 
   const preview = usePreview(tree);
 
@@ -158,6 +160,23 @@ export default function Workbench() {
     });
     setDirty(true);
   }, []);
+
+  /**
+   * A click on the preview lands on the LaTeX that produced it.
+   *
+   * SyncTeX names files by their absolute path in the compiler's scratch
+   * directory, which is gone by now, so the only thing to match on is the tail.
+   * Only the entry file is open in the editor; a hit in an included file has
+   * nowhere to go yet, and is dropped rather than sending the cursor to the same
+   * line number in the wrong document.
+   */
+  const jumpToSource = useCallback(
+    (location: SourceLocation) => {
+      if (!tree || !location.file.endsWith(tree.entry)) return;
+      editorRef.current?.revealLine(location.line);
+    },
+    [tree],
+  );
 
   const save = useCallback(async () => {
     if (!tree || !dirty) return;
@@ -324,12 +343,12 @@ export default function Workbench() {
             </span>
           </header>
           <div className="min-h-0 flex-1 overflow-hidden">
-            {entryFile && <Editor value={entryFile.content} onChange={onEdit} />}
+            {entryFile && <Editor value={entryFile.content} onChange={onEdit} ref={editorRef} />}
           </div>
         </section>
 
         <section className="rule-r min-h-0">
-          <Sheet state={preview} />
+          <Sheet state={preview} onPickSource={jumpToSource} />
         </section>
 
         <section className="min-h-0">

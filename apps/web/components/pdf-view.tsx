@@ -7,7 +7,12 @@
 // stylesheet's own `:root` blocks only declare pdf.js-namespaced custom
 // properties, so importing it does not restyle anything of ours.
 import 'pdfjs-dist/web/pdf_viewer.css';
-import { useEffect, useRef, useState } from 'react';
+import type { SyncTexMap } from '@sailor/core';
+// The browser-safe half of the LaTeX package: pure geometry, no `node:` imports.
+// The map is made where the compiler is; the hit-testing happens where the
+// clicks are.
+import { locateSource, type SourceLocation } from '@sailor/latex/synctex';
+import { type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react';
 
 type Pdfjs = typeof import('pdfjs-dist/legacy/build/pdf.mjs');
 
@@ -58,7 +63,16 @@ const MAX_DEVICE_SCALE = 2;
  * screen for the whole of the next compile. That is the same contract the
  * iframe had by accident; here it has to be deliberate.
  */
-export function PdfView({ data }: { data: ArrayBuffer }) {
+export function PdfView({
+  data,
+  synctex,
+  onPickSource,
+}: {
+  data: ArrayBuffer;
+  /** The map for exactly these bytes. Without it the sheet is simply not clickable. */
+  synctex: SyncTexMap | null;
+  onPickSource?: (location: SourceLocation) => void;
+}) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
 
@@ -114,6 +128,10 @@ export function PdfView({ data }: { data: ArrayBuffer }) {
 
         const sheet = document.createElement('div');
         sheet.className = 'relative mx-auto bg-sheet shadow-[0_20px_60px_-15px_rgba(0,0,0,0.7)]';
+        // What a click needs to become a source line. On the element rather than
+        // in a parallel array, so it cannot go stale relative to the DOM.
+        sheet.dataset.page = String(number);
+        sheet.dataset.scale = String(scale);
         sheet.style.width = `${cssViewport.width}px`;
         sheet.style.height = `${cssViewport.height}px`;
         sheet.style.borderRadius = 'var(--radius-sheet)';
@@ -174,5 +192,42 @@ export function PdfView({ data }: { data: ArrayBuffer }) {
     };
   }, [data, width]);
 
-  return <div ref={hostRef} className="h-full space-y-6 overflow-y-auto" />;
+  /**
+   * A click on the page becomes a source line.
+   *
+   * React's listener sits on the host, so it still sees clicks from the pages
+   * below even though those are built imperatively. A drag that selected text is
+   * not a click and must not scroll the editor out from under the user — that is
+   * what the collapsed-selection check is for.
+   */
+  const pick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!synctex || !onPickSource) return;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+
+    const page = event.target instanceof Element ? event.target.closest('[data-page]') : null;
+    if (!(page instanceof HTMLElement)) return;
+
+    const number = Number(page.dataset.page);
+    const scale = Number(page.dataset.scale);
+    if (!Number.isInteger(number) || !(scale > 0)) return;
+
+    // CSS pixels back to PDF points, origin top-left — the frame `locateSource`
+    // expects. The page box is exactly `scale` times the unscaled viewport, so
+    // this needs no matrix.
+    const box = page.getBoundingClientRect();
+    const located = locateSource(synctex, {
+      page: number,
+      x: (event.clientX - box.left) / scale,
+      y: (event.clientY - box.top) / scale,
+    });
+    if (located) onPickSource(located);
+  };
+
+  // A rendered page is a document, not a control: there is nothing here to focus
+  // and no keyboard gesture that means "this bullet". Anyone not using a pointer
+  // already has the source itself, in a real text editor, one pane to the left.
+  // biome-ignore lint/a11y/noStaticElementInteractions: the sheet is a document, not a control
+  // biome-ignore lint/a11y/useKeyWithClickEvents: the keyboard path to a line is the editor
+  return <div ref={hostRef} onClick={pick} className="h-full space-y-6 overflow-y-auto" />;
 }

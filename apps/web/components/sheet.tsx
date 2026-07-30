@@ -1,5 +1,6 @@
 'use client';
 
+import type { SourceLocation } from '@sailor/latex/synctex';
 import type { PreviewState } from '../lib/use-preview.ts';
 import { PdfView } from './pdf-view.tsx';
 
@@ -11,12 +12,23 @@ import { PdfView } from './pdf-view.tsx';
  * It NEVER goes blank. A failing compile keeps the last good render on screen and
  * annotates it; that is why `error` and `url` coexist rather than being a union.
  */
-export function Sheet({ state }: { state: PreviewState }) {
+export function Sheet({
+  state,
+  onPickSource,
+}: {
+  state: PreviewState;
+  onPickSource?: (location: SourceLocation) => void;
+}) {
   return (
     <div className="relative flex h-full flex-col bg-ink-850">
       <header className="rule-b flex items-center justify-between px-4 py-2.5">
-        <span className="font-mono text-[11px] tracking-widest text-ink-500 uppercase">
-          Preview
+        <span className="flex items-baseline gap-3">
+          <span className="font-mono text-[11px] tracking-widest text-ink-500 uppercase">
+            Preview
+          </span>
+          {state.synctex && onPickSource && (
+            <span className="font-mono text-[10.5px] text-ink-600">click to find the source</span>
+          )}
         </span>
         <span className="flex items-center gap-2 font-mono text-[11px]">
           {state.compiling && <span className="breathe text-ochre">compiling…</span>}
@@ -31,7 +43,7 @@ export function Sheet({ state }: { state: PreviewState }) {
 
       <div className="relative flex-1 overflow-hidden p-6">
         {state.pdf ? (
-          <PdfView data={state.pdf} />
+          <PdfView data={state.pdf} synctex={state.synctex} onPickSource={onPickSource} />
         ) : (
           <div className="flex h-full items-center justify-center">
             <p className="font-mono text-xs text-ink-500">
