@@ -3,10 +3,10 @@
  * compiled PDF, which source file and line produced it?
  *
  * We deliberately do NOT implement the full SyncTeX spec (the "display"
- * direction, visible-vs-invisible boxes, kerns, glue). All we need is to pick
- * the tightest box containing a click and read its `tag,line`. That keeps this
- * file small and, more importantly, legible — a full parser here would be a
- * second compiler nobody could review.
+ * direction, visible-vs-invisible boxes, the box hierarchy). All we need is the
+ * tightest box containing a click, narrowed to the nearest glyph inside it. That
+ * keeps this file small and, more importantly, legible — a full parser here would
+ * be a second compiler nobody could review.
  *
  * ## Format, only the parts we use
  *
@@ -18,7 +18,8 @@
  *   {<page>                   begins a page's records
  *   }<page>                   ends it
  *   [ ( <tag>,<line>:<h>,<v>:<W>,<H>,<D>   a vertical/horizontal box
- *   h g x k v $               non-box records we ignore for hit-testing
+ *   g k x <tag>,<line>:<h>,<v>             a glyph or kern: a position, no extent
+ *   v $                       records we ignore for hit-testing
  *
  * Coordinates are in scaled points (sp): 65536 sp = 1 TeX pt, 72.27 pt = 1 inch.
  * The box's reference point is its lower-left; `H`+`D` is its full height. The
@@ -33,25 +34,31 @@
  * imports.
  */
 
-import type { SyncTexBox, SyncTexMap } from '@sailor/core';
+import type { SyncTexBox, SyncTexMap, SyncTexPoint } from '@sailor/core';
 
 const SP_PER_PT = 65536;
 /** PDF/PostScript points per inch vs. TeX points per inch. */
 const PDF_PT_PER_INCH = 72;
 const TEX_PT_PER_INCH = 72.27;
 
-export type { SyncTexBox, SyncTexMap };
+export type { SyncTexBox, SyncTexMap, SyncTexPoint };
 
 export type SourceLocation = { file: string; line: number };
 
 // `[1,3:8799519,8865055:22609920,642672,183080` → tag 1, line 3, then two
 // coordinate groups. The leading glyph ([ ( h v etc.) is matched separately.
-const BOX_RECORD = /^[[(vhx]\s*(-?\d+),(-?\d+):(-?\d+),(-?\d+):(-?\d+),(-?\d+),(-?\d+)/;
+const BOX_RECORD = /^[[(vh]\s*(-?\d+),(-?\d+):(-?\d+),(-?\d+):(-?\d+),(-?\d+),(-?\d+)/;
+
+// `g1,30:4469333,11055189` → a glyph or kern: a tagged line and a position, with
+// no extent. Kerns (`k`) carry a width we do not need. Must be tried before
+// BOX_RECORD, which would otherwise not match these at all.
+const POINT_RECORD = /^[gkx]\s*(-?\d+),(-?\d+):(-?\d+),(-?\d+)/;
 
 /** Parse the decompressed SyncTeX text into something hit-testable. */
 export function parseSyncTex(raw: string): SyncTexMap {
   const files = new Map<number, string>();
   const boxes: SyncTexBox[] = [];
+  const points: SyncTexPoint[] = [];
   let unit = 1;
   let xOffset = 0;
   let yOffset = 0;
@@ -88,6 +95,16 @@ export function parseSyncTex(raw: string): SyncTexMap {
       continue;
     }
 
+    const point = POINT_RECORD.exec(line);
+    if (point && page !== 0) {
+      const tag = Number(point[1]);
+      const sourceLine = Number(point[2]);
+      if (files.has(tag) && sourceLine > 0) {
+        points.push({ page, tag, line: sourceLine, x: Number(point[3]), y: Number(point[4]) });
+      }
+      continue;
+    }
+
     const match = BOX_RECORD.exec(line);
     if (!match || page === 0) continue;
     const tag = Number(match[1]);
@@ -117,6 +134,7 @@ export function parseSyncTex(raw: string): SyncTexMap {
   return {
     files: [...files].map(([tag, path]) => ({ tag, path })),
     boxes,
+    points,
     unit,
     xOffset,
     yOffset,
@@ -180,8 +198,40 @@ export function locateSource(
     }
   }
 
-  const hit = bestContaining ?? nearest;
-  if (!hit) return null;
+  const box = bestContaining ?? nearest;
+  if (!box) return null;
+
+  // Refine with the glyphs inside that box, when there are any.
+  //
+  // A box is only as precise as the moment TeX shipped it. A paragraph's hbox is
+  // tagged with the line the paragraph was *broken* on, so clicking the middle of
+  // a bullet that starts on line 30 lands on 31 — and for the last bullet in a
+  // list, on the `\end{itemize}`. The glyph records inside the same box still
+  // carry the line that typeset them, which is the one the user meant.
+  const hit = nearestGlyphIn(map, box, sp) ?? box;
   const file = map.files.find((f) => f.tag === hit.tag);
   return file ? { file: file.path, line: hit.line } : null;
+}
+
+function nearestGlyphIn(
+  map: SyncTexMap,
+  box: SyncTexBox,
+  at: { x: number; y: number },
+): SyncTexPoint | null {
+  let best: SyncTexPoint | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const point of map.points) {
+    if (point.page !== box.page) continue;
+    if (point.x < box.left || point.x > box.left + box.width) continue;
+    if (point.y < box.top || point.y > box.top + box.height) continue;
+
+    const distance = (at.x - point.x) ** 2 + (at.y - point.y) ** 2;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = point;
+    }
+  }
+
+  return best;
 }

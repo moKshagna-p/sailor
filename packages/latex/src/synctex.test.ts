@@ -33,6 +33,24 @@ Content:
 }1
 `;
 
+// Transcribed from a real compile of the starter resume's first bullet. The line
+// box is tagged 31 — the line TeX broke the paragraph on — while every glyph in
+// it is tagged 30, where the `\item` actually is.
+const PARAGRAPH = `SyncTeX Version:1
+Input:1:/tmp/scratch/resume.tex
+Unit:1
+X Offset:0
+Y Offset:0
+Content:
+{1
+(1,31:4469333,11055189:32236890,498028,147829
+g1,30:4469333,11055189
+g1,30:10544695,11055189
+g1,30:23968475,11055189
+)
+}1
+`;
+
 // Pay the CTAN download once, not inside a test that is timing a compile. Bun
 // may run this file before latex.test.ts, so it cannot rely on that one's warm-up.
 beforeAll(async () => {
@@ -75,6 +93,9 @@ test(
     // Exactly one input file, and it is ours.
     expect(map.files.some((f) => f.path.endsWith('resume.tex'))).toBe(true);
     expect(map.boxes.length).toBeGreaterThan(0);
+    // Glyph records are what make a click precise; a compiler that stopped
+    // emitting them would silently degrade every jump by a line.
+    expect(map.points.length).toBeGreaterThan(0);
 
     // Both section headings produced visible material and must appear as boxes.
     // (TeX folds a paragraph's body into the box for the line the paragraph
@@ -142,6 +163,28 @@ test('a parsed map survives the trip to a browser', () => {
       y: centre(box.top, box.height),
     }),
   ).toEqual({ file: '/tmp/scratch/resume.tex', line: 3 });
+});
+
+/**
+ * The difference between landing on a bullet and landing on the `\end{itemize}`
+ * below it. Without the glyph refinement this resolves to 31, which is where TeX
+ * finished the paragraph rather than where the user clicked.
+ */
+test('a click inside a paragraph resolves to the glyph line, not the box line', () => {
+  const map = parseSyncTex(PARAGRAPH);
+  expect(map.boxes).toHaveLength(1);
+  expect(map.points).toHaveLength(3);
+  expect(map.boxes[0]?.line).toBe(31);
+
+  const box = map.boxes[0];
+  if (!box) return;
+  const toPt = (sp: number) => (sp / 65536) * (72 / 72.27);
+  const located = locateSource(map, {
+    page: 1,
+    x: toPt(box.left + box.width / 2),
+    y: toPt(box.top + box.height / 2),
+  });
+  expect(located?.line).toBe(30);
 });
 
 test('parseSyncTex tolerates junk without throwing', () => {

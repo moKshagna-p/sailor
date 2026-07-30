@@ -79,8 +79,18 @@ export containing only the parser and the geometry, with no `node:` imports, so
 `apps/web` can import it; the Tectonic half of the package must never reach the
 browser bundle. A click on a page converts CSS pixels back to PDF points using
 the page's own scale — recorded in `data-page` and `data-scale` on the element,
-not a parallel array that could go stale — and `locateSource` returns the tightest
-enclosing box, or the nearest one, since clicks land in margins constantly.
+not a parallel array that could go stale.
+
+`locateSource` then does two passes. It takes the tightest box containing the
+point, or the nearest box on that page, since clicks land in margins constantly.
+Then it narrows to the nearest **glyph** record inside that box. The second pass
+is not a refinement for its own sake: a box is only as precise as the moment TeX
+shipped it, and a paragraph's hbox is tagged with the line the paragraph was
+*broken* on. Clicking a bullet that starts on line 30 resolved to 31 with boxes
+alone, and the last bullet of a list resolved to its `\end{itemize}`. The glyphs
+inside the same box still carry the line that typeset them. Measured against the
+starter resume in a real browser, every section heading and every bullet now
+resolves to its own line.
 
 SyncTeX names files by their absolute path inside the compiler's scratch
 directory, which no longer exists by the time anyone clicks. The workbench matches

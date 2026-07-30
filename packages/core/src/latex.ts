@@ -50,6 +50,22 @@ export const SyncTexBox = z.object({
 export type SyncTexBox = z.infer<typeof SyncTexBox>;
 
 /**
+ * A single typeset glyph or kern, and the line it came from. These are what make
+ * a click land on the right line: TeX tags a paragraph's box with the line it was
+ * *broken* on, which for a bullet is the line after the `\item`, while the glyphs
+ * inside that box still carry the line that actually typeset them.
+ */
+export const SyncTexPoint = z.object({
+  page: z.number().int().positive(),
+  tag: z.number().int(),
+  line: z.number().int().positive(),
+  /** Scaled points, PDF-style: origin top-left. */
+  x: z.number(),
+  y: z.number(),
+});
+export type SyncTexPoint = z.infer<typeof SyncTexPoint>;
+
+/**
  * A parsed SyncTeX map. The server produces it; the browser hit-tests clicks
  * against it, so it lives here — it crosses a process boundary.
  *
@@ -61,6 +77,7 @@ export type SyncTexBox = z.infer<typeof SyncTexBox>;
 export const SyncTexMap = z.object({
   files: z.array(z.object({ tag: z.number().int(), path: z.string() })),
   boxes: z.array(SyncTexBox),
+  points: z.array(SyncTexPoint),
   /** Scaled-points-per-unit multiplier, and the offsets added to every coordinate. */
   unit: z.number(),
   xOffset: z.number(),
