@@ -15,7 +15,7 @@ import {
   rollbackTo,
   upsertCredential,
 } from '@sailor/db';
-import { compileWithTectonic, prewarm, STARTER_RESUME } from '@sailor/latex';
+import { compileWithTectonic, parseSyncTex, prewarm, STARTER_RESUME } from '@sailor/latex';
 import { allDrivers, availableProviders, getDriver } from '@sailor/providers';
 import { Elysia } from 'elysia';
 import { z } from 'zod';
@@ -485,10 +485,17 @@ const app = new Elysia()
    * The authoritative compile. Returns the PDF itself, not a URL — the document
    * is small, the client wants it immediately, and a URL would mean storing a
    * PDF we would then have to invalidate.
+   *
+   * Ask for `synctex` and the response becomes JSON carrying both the PDF and the
+   * parsed source map, because the preview needs them to arrive together: a map
+   * from a different compile than the pixels on screen would point at the wrong
+   * lines. That costs base64 — measured at 21KB of PDF and 5KB of map for the
+   * starter resume, so the inflation is worth not inventing a wire format. The
+   * default path still streams raw bytes.
    */
   .post('/api/compile', async ({ body, set }) => {
-    const input = parse(z.object({ tree: ResumeTree }), body);
-    const result = await compileWithTectonic(input.tree);
+    const input = parse(z.object({ tree: ResumeTree, synctex: z.boolean().default(false) }), body);
+    const result = await compileWithTectonic(input.tree, { synctex: input.synctex });
 
     if (!result.ok) {
       set.status = 422;
@@ -500,8 +507,19 @@ const app = new Elysia()
       };
     }
 
-    set.headers['content-type'] = 'application/pdf';
     set.headers['x-compile-ms'] = String(result.durationMs);
+
+    if (input.synctex) {
+      return {
+        ok: true as const,
+        pdf: Buffer.from(result.pdf).toString('base64'),
+        // Null when the engine cannot emit a map. The client degrades to a
+        // preview you cannot click, which is what it had before this existed.
+        synctex: result.synctex ? parseSyncTex(result.synctex) : null,
+      };
+    }
+
+    set.headers['content-type'] = 'application/pdf';
     return new Response(new Uint8Array(result.pdf));
   })
 
