@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
-import type { LatexDiagnostic, ResumeTree } from '@sailor/core';
+import { type LatexDiagnostic, type ResumeTree, SyncTexMap } from '@sailor/core';
+import { z } from 'zod';
 
 /**
  * The preview engine, in a Web Worker.
@@ -38,6 +39,12 @@ export type CompileResponse =
       type: 'ok';
       seq: number;
       pdf: ArrayBuffer;
+      /**
+       * The map for *these* bytes, or null when the engine cannot emit one. It
+       * travels with the PDF rather than being fetched on demand so a click can
+       * never be resolved against a different compile than the one on screen.
+       */
+      synctex: SyncTexMap | null;
       durationMs: number;
       cached: boolean;
     }
@@ -54,44 +61,64 @@ type CompileEngine = {
     tree: ResumeTree,
     signal: AbortSignal,
   ): Promise<
-    | { ok: true; pdf: ArrayBuffer; durationMs: number }
+    | { ok: true; pdf: ArrayBuffer; synctex: SyncTexMap | null; durationMs: number }
     | { ok: false; summary: string; diagnostics: LatexDiagnostic[] }
   >;
 };
 
+/** Parsed at the boundary like every other response, even coming from our own API. */
+const CompileOkBody = z.object({
+  pdf: z.base64(),
+  synctex: SyncTexMap.nullable(),
+});
+
+const CompileErrBody = z.object({
+  summary: z.string().optional(),
+  diagnostics: z.array(z.custom<LatexDiagnostic>()).optional(),
+});
+
+function decodeBase64(base64: string): ArrayBuffer {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
 const serverEngine: CompileEngine = {
   async compile(tree, signal) {
+    // Round trip, not the server's compile time: transferring and decoding the
+    // document is part of what the user waits for.
     const started = performance.now();
     const res = await fetch(`${API}/api/compile`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ tree }),
+      // The map is the point of asking the server rather than compiling here.
+      body: JSON.stringify({ tree, synctex: true }),
       signal,
     });
 
     if (res.ok) {
+      const body = CompileOkBody.parse(await res.json());
       return {
         ok: true,
-        pdf: await res.arrayBuffer(),
+        pdf: decodeBase64(body.pdf),
+        synctex: body.synctex,
         durationMs: Math.round(performance.now() - started),
       };
     }
 
-    const body = (await res.json().catch(() => ({}))) as {
-      summary?: string;
-      diagnostics?: LatexDiagnostic[];
-    };
+    const body = CompileErrBody.safeParse(await res.json().catch(() => ({})));
     return {
       ok: false,
-      summary: body.summary ?? `Compile failed (${res.status})`,
-      diagnostics: body.diagnostics ?? [],
+      summary: (body.success ? body.data.summary : null) ?? `Compile failed (${res.status})`,
+      diagnostics: (body.success ? body.data.diagnostics : null) ?? [],
     };
   },
 };
 
 const engine: CompileEngine = serverEngine;
 
-const cache = new Map<string, ArrayBuffer>();
+const cache = new Map<string, { pdf: ArrayBuffer; synctex: SyncTexMap | null }>();
 
 async function hash(tree: ResumeTree): Promise<string> {
   const files = [...tree.files].sort((a, b) => a.path.localeCompare(b.path));
@@ -124,7 +151,14 @@ self.onmessage = (event: MessageEvent<CompileRequest>) => {
     // serving it instantly is the single biggest perceived-speed win here.
     const hit = cache.get(key);
     if (hit) {
-      post({ type: 'ok', seq, pdf: hit.slice(0), durationMs: 0, cached: true });
+      post({
+        type: 'ok',
+        seq,
+        pdf: hit.pdf.slice(0),
+        synctex: hit.synctex,
+        durationMs: 0,
+        cached: true,
+      });
       return;
     }
 
@@ -151,13 +185,14 @@ self.onmessage = (event: MessageEvent<CompileRequest>) => {
         const oldest = cache.keys().next().value;
         if (oldest !== undefined) cache.delete(oldest);
       }
-      cache.set(key, result.pdf.slice(0));
+      cache.set(key, { pdf: result.pdf.slice(0), synctex: result.synctex });
 
       post(
         {
           type: 'ok',
           seq,
           pdf: result.pdf,
+          synctex: result.synctex,
           durationMs: result.durationMs,
           cached: false,
         },

@@ -1,6 +1,6 @@
 'use client';
 
-import type { LatexDiagnostic, ResumeTree } from '@sailor/core';
+import type { LatexDiagnostic, ResumeTree, SyncTexMap } from '@sailor/core';
 import { useEffect, useRef, useState } from 'react';
 import type { CompileResponse } from './preview.worker.ts';
 
@@ -13,6 +13,12 @@ export type PreviewState = {
    * exposes no text selection or page coordinates.
    */
   pdf: ArrayBuffer | null;
+  /**
+   * Source map for exactly the PDF in `pdf` — they are replaced together, so a
+   * click is never resolved against a document the user is no longer looking at.
+   * Null before the first compile, or if the engine cannot emit one.
+   */
+  synctex: SyncTexMap | null;
   compiling: boolean;
   /** Set when the *current* source does not compile. `url` still shows the last good one. */
   error: { summary: string; diagnostics: LatexDiagnostic[] } | null;
@@ -32,6 +38,7 @@ export function usePreview(tree: ResumeTree | null): PreviewState {
 
   const [state, setState] = useState<PreviewState>({
     pdf: null,
+    synctex: null,
     compiling: false,
     error: null,
     durationMs: null,
@@ -69,6 +76,7 @@ export function usePreview(tree: ResumeTree | null): PreviewState {
       // previous one is replaced rather than mutated.
       setState({
         pdf: message.pdf,
+        synctex: message.synctex,
         compiling: false,
         error: null,
         durationMs: message.durationMs,
