@@ -1,0 +1,99 @@
+name: CI
+
+# Everything AGENTS.md calls the definition of done, minus the part a machine
+# cannot do (driving the real flow). Steps 1-3 stop depending on someone
+# remembering to run them.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Not a secret: CI has no real credentials and stores nothing worth reading.
+  # The value only has to decode to 32 bytes, which the crypto module enforces.
+  SAILOR_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  DATABASE_URL: postgres://sailor:sailor@localhost:5432/sailor
+  NEXT_PUBLIC_API_URL: http://localhost:3001
+  WEB_ORIGIN: http://localhost:3000
+  TECTONIC_BIN: ./bin/tectonic
+  TECTONIC_CACHE_DIR: ./.tectonic-cache
+
+jobs:
+  static:
+    name: check + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+
+      # Several package scripts read ../../.env directly, so it has to exist
+      # even when every value also comes from the job environment.
+      - name: Write .env
+        run: cp .env.example .env
+
+      - run: bun run check
+
+      # `next build` before typecheck, not just `next typegen`: next-env.d.ts is
+      # generated, not tracked, so a fresh clone has no route types at all until
+      # something writes them.
+      #
+      # It earns its minute anyway. A build prerenders every route, which is how
+      # a client-only module that explodes on the server gets caught — exactly
+      # the failure that shipped a 500 to the preview page and that neither
+      # tsc nor a unit test can see.
+      - run: bun run --filter @sailor/web build
+
+      - run: bun run typecheck
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: sailor
+          POSTGRES_PASSWORD: sailor
+          POSTGRES_DB: sailor
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U sailor -d sailor"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+
+      - name: Write .env
+        run: cp .env.example .env
+
+      - name: Install Tectonic
+        run: bun run scripts/install-tectonic.ts
+
+      # A cold CTAN fetch of everything the starter resume needs was measured at
+      # 226s. Caching it is the difference between a 2-minute run and a
+      # 6-minute one. Keyed on the template, because that is what determines
+      # which packages get pulled.
+      - name: Cache TeX packages
+        uses: actions/cache@v4
+        with:
+          path: .tectonic-cache
+          key: tectonic-${{ runner.os }}-${{ hashFiles('packages/latex/src/template.ts', 'scripts/install-tectonic.ts') }}
+          restore-keys: tectonic-${{ runner.os }}-
+
+      - run: bun run db:migrate
+
+      - run: bun test
