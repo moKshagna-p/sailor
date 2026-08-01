@@ -94,7 +94,8 @@ server is right.
 
 More depth, kept current in `docs/`:
 [architecture](docs/architecture.md) · [providers & credentials](docs/providers.md) ·
-[the agent & ACP](docs/agent.md) · [LaTeX compilation](docs/latex.md)
+[the agent & ACP](docs/agent.md) · [LaTeX compilation](docs/latex.md) ·
+[the browser app](docs/web.md) · [roadmap](docs/roadmap.md)
 
 ## Running it
 
@@ -156,3 +157,6 @@ OAuth flow, and a pdf.js preview you can click to land on the LaTeX that produce
 what you clicked. Next up: a selection menu on the preview (jump to source / ask
 the agent about this line), real multi-user auth, and a browser WASM compile
 engine behind the existing worker seam.
+
+[docs/roadmap.md](docs/roadmap.md) tracks that in detail — what is shipped, what
+is next, and the traps waiting in each one.

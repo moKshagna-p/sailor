@@ -8,7 +8,10 @@ Do not duplicate rules here — a second copy always drifts out of sync with the
 Additional context, loaded on demand (read these when the task touches them —
 do not read them all up front):
 
+- @docs/roadmap.md — what is built, what is next, and why it is shaped that way.
+  Read this first if you are picking the work up cold.
 - @docs/architecture.md — how the packages fit together, and why
 - @docs/providers.md — the model gateway: adding a provider, OAuth vs API key
 - @docs/agent.md — the resume agent: tools, permissions, the ACP contract
 - @docs/latex.md — the dual compile path (WASM preview + Tectonic authoritative)
+- @docs/web.md — the browser app: panes, preview pipeline, ACP client
