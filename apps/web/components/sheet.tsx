@@ -15,9 +15,11 @@ import { PdfView } from './pdf-view.tsx';
 export function Sheet({
   state,
   onPickSource,
+  onAskAgent,
 }: {
   state: PreviewState;
   onPickSource?: (location: SourceLocation) => void;
+  onAskAgent?: (selection: { renderedText: string; location: SourceLocation | null }) => void;
 }) {
   return (
     <div className="relative flex h-full flex-col bg-ink-850">
@@ -43,7 +45,12 @@ export function Sheet({
 
       <div className="relative flex-1 overflow-hidden p-6">
         {state.pdf ? (
-          <PdfView data={state.pdf} synctex={state.synctex} onPickSource={onPickSource} />
+          <PdfView
+            data={state.pdf}
+            synctex={state.synctex}
+            onPickSource={onPickSource}
+            onAskAgent={onAskAgent}
+          />
         ) : (
           <div className="flex h-full items-center justify-center">
             <p className="font-mono text-xs text-ink-500">

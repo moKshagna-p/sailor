@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { type Ref, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { AgentEvent, ElicitAsk, GapAnalysis, PermissionAsk } from '../lib/acp-client.ts';
 import { DiffView } from './diff-view.tsx';
 
@@ -22,6 +22,12 @@ const TOOL_LABELS: Record<string, string> = {
   record_gap_analysis: 'Analysing the gap',
 };
 
+/**
+ * Drafting a question about a selection is a command, not app state: the same
+ * selection must be able to refill and focus the composer more than once.
+ */
+export type ChatHandle = { setDraft: (text: string) => void };
+
 export function Chat({
   items,
   busy,
@@ -30,6 +36,7 @@ export function Chat({
   elicit,
   onSend,
   onCancel,
+  ref,
 }: {
   items: ChatItem[];
   busy: boolean;
@@ -38,10 +45,21 @@ export function Chat({
   elicit: ElicitAsk | null;
   onSend: (text: string) => void;
   onCancel: () => void;
+  ref?: Ref<ChatHandle>;
 }) {
   const [draft, setDraft] = useState('');
   const [answer, setAnswer] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const draftRef = useRef<HTMLInputElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    setDraft(text) {
+      setDraft(text);
+      const input = draftRef.current;
+      input?.focus();
+      input?.setSelectionRange(text.length, text.length);
+    },
+  }));
 
   // Scroll to the bottom whenever anything new appears. The deps are the *triggers*
   // for scrolling, not values the effect reads — biome cannot tell the difference.
@@ -142,6 +160,7 @@ export function Chat({
       >
         <div className="flex gap-2">
           <input
+            ref={draftRef}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             disabled={!connected}

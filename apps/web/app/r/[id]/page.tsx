@@ -5,7 +5,7 @@ import type { SourceLocation } from '@sailor/latex/synctex';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Chat, type ChatItem, reduceEvent } from '../../../components/chat.tsx';
+import { Chat, type ChatHandle, type ChatItem, reduceEvent } from '../../../components/chat.tsx';
 import { Editor, type EditorHandle } from '../../../components/editor.tsx';
 import { Sheet } from '../../../components/sheet.tsx';
 import { AcpClient, type ElicitAsk, type PermissionAsk } from '../../../lib/acp-client.ts';
@@ -18,6 +18,9 @@ type JobDraft = {
   description: string;
   sourceUrl: string;
 };
+
+/** How much of a selection is quoted into the composer before it is elided. */
+const QUOTE_LIMIT = 160;
 
 const EMPTY_JOB_DRAFT: JobDraft = {
   company: '',
@@ -52,6 +55,7 @@ export default function Workbench() {
   const clientRef = useRef<AcpClient | null>(null);
   const sessionRef = useRef<string | null>(null);
   const editorRef = useRef<EditorHandle | null>(null);
+  const chatRef = useRef<ChatHandle | null>(null);
 
   const preview = usePreview(tree);
 
@@ -177,6 +181,22 @@ export default function Workbench() {
     },
     [tree],
   );
+
+  const askAboutSelection = useCallback((selection: { renderedText: string }) => {
+    // pdf.js gives us rendered output split across visual spans, not LaTex
+    // source. Do not imply that this quote is an exact edit target: the agent
+    // must find the unique old text itself with read_resume before edit_resume.
+    //
+    // Elided, because the composer is one line: a whole selected section would
+    // push the user's own question out of sight while they typed it. The agent
+    // does not need the full quote to find the passage — it has read_resume, and
+    // an ellipsis says plainly that this is a pointer, not the text itself.
+    const quote =
+      selection.renderedText.length > QUOTE_LIMIT
+        ? `${selection.renderedText.slice(0, QUOTE_LIMIT).trimEnd()}…`
+        : selection.renderedText;
+    chatRef.current?.setDraft(`About the rendered output «${quote}» — `);
+  }, []);
 
   const save = useCallback(async () => {
     if (!tree || !dirty) return;
@@ -348,7 +368,7 @@ export default function Workbench() {
         </section>
 
         <section className="rule-r min-h-0">
-          <Sheet state={preview} onPickSource={jumpToSource} />
+          <Sheet state={preview} onPickSource={jumpToSource} onAskAgent={askAboutSelection} />
         </section>
 
         <section className="min-h-0">
@@ -360,6 +380,7 @@ export default function Workbench() {
             elicit={elicit}
             onSend={send}
             onCancel={cancel}
+            ref={chatRef}
           />
         </section>
       </main>
