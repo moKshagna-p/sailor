@@ -154,9 +154,10 @@ The full house rules live in [AGENTS.md](AGENTS.md).
 Under active development. Recent: one-click OpenRouter sign-in that needs no API
 key or client registration, provider key verification, the Anthropic code-paste
 OAuth flow, and a pdf.js preview you can click to land on the LaTeX that produced
-what you clicked. Next up: a selection menu on the preview (jump to source / ask
-the agent about this line), real multi-user auth, and a browser WASM compile
-engine behind the existing worker seam.
+what you clicked. Next up: a selection menu on the preview (highlight a line, ask
+the agent about it), dropping a job description in as a PDF or a screenshot
+instead of pasting text, real multi-user auth, and a browser WASM compile engine
+behind the existing worker seam.
 
 [docs/roadmap.md](docs/roadmap.md) tracks that in detail — what is shipped, what
 is next, and the traps waiting in each one.
