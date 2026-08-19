@@ -14,6 +14,7 @@
     "studio": "bun --env-file=../../.env drizzle-kit studio"
   },
   "dependencies": {
+    "@better-auth/drizzle-adapter": "^1.7.1",
     "@sailor/core": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.9"

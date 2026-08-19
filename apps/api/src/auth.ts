@@ -1,25 +1,42 @@
-import { ensureUser } from '@sailor/db';
+import { createId } from '@sailor/core';
+import { authDatabase } from '@sailor/db';
+import { betterAuth } from 'better-auth';
+import { requestHeaders, requireUserId } from './session.ts';
 
-/**
- * AUTH STUB — deliberately a body, per the plan. Better Auth (GitHub/Google
- * OAuth) drops in here and this file is the only thing that changes.
- *
- * Everything downstream already takes a `userId` and scopes its queries by it,
- * so swapping this for a real session lookup is a one-function change rather
- * than an audit of every route. That was the point of writing it this way now.
- *
- * When Better Auth lands:
- *   1. `bun add better-auth`, mount its handler at /api/auth/*
- *   2. Replace the body of `currentUserId()` with a session lookup
- *   3. Throw a 401 instead of minting the dev user
- *   4. Delete DEV_EMAIL
- */
-const DEV_EMAIL = 'dev@sailor.local';
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is not set. Copy .env.example to .env.`);
+  return value;
+}
 
-let cached: string | null = null;
+const webOrigin = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
+const apiOrigin = process.env.API_PUBLIC_URL ?? 'http://localhost:3001';
 
-export async function currentUserId(_headers: Record<string, string | undefined>): Promise<string> {
-  if (cached) return cached;
-  cached = await ensureUser(DEV_EMAIL, 'Dev User');
-  return cached;
+export const auth = betterAuth({
+  appName: 'Sailor',
+  database: authDatabase,
+  baseURL: apiOrigin,
+  secret: required('BETTER_AUTH_SECRET'),
+  trustedOrigins: [webOrigin],
+  socialProviders: {
+    google: {
+      clientId: required('AUTH_GOOGLE_CLIENT_ID'),
+      clientSecret: required('AUTH_GOOGLE_CLIENT_SECRET'),
+    },
+    github: {
+      clientId: required('AUTH_GITHUB_CLIENT_ID'),
+      clientSecret: required('AUTH_GITHUB_CLIENT_SECRET'),
+    },
+  },
+  advanced: {
+    database: {
+      generateId: ({ model }) => createId(model.slice(0, 3)),
+    },
+  },
+});
+
+export async function currentUserId(headers: Record<string, string | undefined>): Promise<string> {
+  return requireUserId(requestHeaders(headers), ({ headers: request }) =>
+    auth.api.getSession({ headers: request }),
+  );
 }

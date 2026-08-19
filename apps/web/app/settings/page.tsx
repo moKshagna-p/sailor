@@ -3,6 +3,7 @@
 import type { PublicCredential } from '@sailor/core';
 import Link from 'next/link';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
+import { AccountMenu } from '../../components/account-menu.tsx';
 import { api, type ProviderInfo } from '../../lib/api.ts';
 import { prefersOAuth, providerStatus } from '../../lib/provider-settings.ts';
 
@@ -77,9 +78,12 @@ export default function SettingsPage() {
 
   return (
     <main className="mx-auto min-h-full max-w-3xl px-8 py-14">
-      <Link href="/" className="font-mono text-[11px] text-ink-500 hover:text-ochre">
-        ← Your résumés
-      </Link>
+      <div className="flex items-center justify-between">
+        <Link href="/" className="font-mono text-[11px] text-ink-500 hover:text-ochre">
+          ← Your résumés
+        </Link>
+        <AccountMenu />
+      </div>
       <header className="mt-10 max-w-xl">
         <p className="font-mono text-[11px] tracking-[0.18em] text-ochre uppercase">Settings</p>
         <h1

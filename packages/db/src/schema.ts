@@ -1,6 +1,7 @@
 import type { ResumeTree } from '@sailor/core';
 import { relations } from 'drizzle-orm';
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -11,19 +12,81 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 
-/**
- * Auth is a stub for now — Better Auth (GitHub/Google OAuth) drops in later and
- * owns this table. Keep the shape minimal so its migration is additive: it needs
- * `id`, `email`, `name`, `image`, `emailVerified`, and we already have the first
- * three. Do not add app-specific columns here; hang them off a profile table.
- */
 export const users = pgTable('users', {
   id: varchar('id', { length: 32 }).primaryKey(),
   email: text('email').notNull().unique(),
   name: text('name'),
   image: text('image'),
+  emailVerified: boolean('email_verified').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const accounts = pgTable(
+  'accounts',
+  {
+    id: varchar('id', { length: 32 }).primaryKey(),
+    accountId: text('account_id').notNull(),
+    providerId: text('provider_id').notNull(),
+    userId: varchar('user_id', { length: 32 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    idToken: text('id_token'),
+    accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true }),
+    scope: text('scope'),
+    password: text('password'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('accounts_user_id_idx').on(table.userId)],
+);
+
+export const sessions = pgTable(
+  'sessions',
+  {
+    id: varchar('id', { length: 32 }).primaryKey(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    token: text('token').notNull().unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    userId: varchar('user_id', { length: 32 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+  },
+  (table) => [index('sessions_user_id_idx').on(table.userId)],
+);
+
+export const verifications = pgTable(
+  'verifications',
+  {
+    id: varchar('id', { length: 32 }).primaryKey(),
+    identifier: text('identifier').notNull(),
+    value: text('value').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('verifications_identifier_idx').on(table.identifier)],
+);
+
+export const providerOAuthAttempts = pgTable(
+  'provider_oauth_attempts',
+  {
+    state: varchar('state', { length: 64 }).primaryKey(),
+    userId: varchar('user_id', { length: 32 })
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    codeVerifier: text('code_verifier'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [index('provider_oauth_attempts_expiry_idx').on(table.expiresAt)],
+);
 
 /**
  * BYO-key storage. `secret` and `refreshSecret` are AES-256-GCM ciphertext — see
@@ -158,8 +221,18 @@ export const sessionMessages = pgTable(
 );
 
 export const usersRelations = relations(users, ({ many }) => ({
+  accounts: many(accounts),
+  sessions: many(sessions),
   resumes: many(resumes),
   credentials: many(providerCredentials),
+}));
+
+export const accountsRelations = relations(accounts, ({ one }) => ({
+  user: one(users, { fields: [accounts.userId], references: [users.id] }),
+}));
+
+export const sessionsRelations = relations(sessions, ({ one }) => ({
+  user: one(users, { fields: [sessions.userId], references: [users.id] }),
 }));
 
 export const resumesRelations = relations(resumes, ({ one, many }) => ({

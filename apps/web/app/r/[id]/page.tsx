@@ -15,6 +15,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { AccountMenu } from '../../../components/account-menu.tsx';
 import { Chat, type ChatHandle, type ChatItem, reduceEvent } from '../../../components/chat.tsx';
 import { Editor, type EditorHandle } from '../../../components/editor.tsx';
 import { Sheet } from '../../../components/sheet.tsx';
@@ -393,6 +394,7 @@ export default function Workbench() {
               PDF
             </a>
           )}
+          <AccountMenu />
         </div>
       </header>
 
