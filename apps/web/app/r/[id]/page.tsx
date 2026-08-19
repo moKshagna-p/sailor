@@ -5,6 +5,7 @@ import type { SourceLocation } from '@sailor/latex/synctex';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
+  type CSSProperties,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -20,11 +21,14 @@ import { Sheet } from '../../../components/sheet.tsx';
 import { AcpClient, type ElicitAsk, type PermissionAsk } from '../../../lib/acp-client.ts';
 import { api, type ProviderInfo } from '../../../lib/api.ts';
 import {
+  movePaneTab,
   PANE_HANDLE_WIDTH,
   type PaneBoundary,
   type PaneWidths,
   parsePaneWidths,
   resizePaneLayout,
+  WORKBENCH_PANES,
+  type WorkbenchPane,
 } from '../../../lib/pane-layout.ts';
 import { usePreview } from '../../../lib/use-preview.ts';
 
@@ -77,6 +81,7 @@ export default function Workbench() {
   const workbenchRef = useRef<HTMLElement | null>(null);
   const [paneWidths, setPaneWidths] = useState(DEFAULT_PANES);
   const [resizing, setResizing] = useState(false);
+  const [activePane, setActivePane] = useState<WorkbenchPane>('source');
 
   const preview = usePreview(tree);
 
@@ -285,6 +290,9 @@ export default function Workbench() {
   }, [save]);
 
   const noProviders = providers.length > 0 && !providers.some((p) => p.available);
+  const workbenchStyle: CSSProperties & Record<'--workbench-columns', string> = {
+    '--workbench-columns': `${paneWidths.source}px ${PANE_HANDLE_WIDTH}px ${paneWidths.preview}px ${PANE_HANDLE_WIDTH}px minmax(0, 1fr)`,
+  };
 
   const createJobTarget = useCallback(async (draft: JobDraft) => {
     const { jobTargetId } = await api.createJob({
@@ -317,7 +325,7 @@ export default function Workbench() {
 
   return (
     <div className="flex h-screen flex-col">
-      <header className="rule-b flex shrink-0 items-center justify-between px-4 py-2.5">
+      <header className="rule-b flex shrink-0 items-center justify-between gap-4 overflow-x-auto px-4 py-2.5">
         <div className="flex items-baseline gap-4">
           <Link
             href="/"
@@ -417,14 +425,50 @@ export default function Workbench() {
         />
       )}
 
+      <div
+        role="tablist"
+        aria-label="Workbench panes"
+        className="rule-b grid grid-cols-3 lg:hidden"
+      >
+        {WORKBENCH_PANES.map((pane) => (
+          <button
+            key={pane}
+            id={`workbench-${pane}-tab`}
+            type="button"
+            role="tab"
+            aria-controls={`workbench-${pane}-panel`}
+            aria-selected={activePane === pane}
+            tabIndex={activePane === pane ? 0 : -1}
+            onClick={() => setActivePane(pane)}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+              event.preventDefault();
+              const next = movePaneTab(pane, event.key === 'ArrowLeft' ? -1 : 1);
+              setActivePane(next);
+              document.getElementById(`workbench-${next}-tab`)?.focus();
+            }}
+            className={`px-3 py-2 font-mono text-[10.5px] tracking-widest uppercase ${
+              activePane === pane ? 'bg-ochre text-ink-900' : 'text-ink-500'
+            }`}
+          >
+            {pane}
+          </button>
+        ))}
+      </div>
+
       <main
         ref={workbenchRef}
-        className={`grid min-h-0 flex-1 ${resizing ? 'select-none' : ''}`}
-        style={{
-          gridTemplateColumns: `${paneWidths.source}px ${PANE_HANDLE_WIDTH}px ${paneWidths.preview}px ${PANE_HANDLE_WIDTH}px minmax(0, 1fr)`,
-        }}
+        className={`grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[var(--workbench-columns)] ${
+          resizing ? 'select-none' : ''
+        }`}
+        style={workbenchStyle}
       >
-        <section className="flex min-h-0 flex-col">
+        <section
+          id="workbench-source-panel"
+          role="tabpanel"
+          aria-labelledby="workbench-source-tab"
+          className={`${activePane === 'source' ? 'flex' : 'hidden'} min-h-0 flex-col lg:flex`}
+        >
           <header className="rule-b flex items-center justify-between px-4 py-2.5">
             <span className="font-mono text-[11px] tracking-widest text-ink-500 uppercase">
               {tree?.entry ?? 'source'}
@@ -444,7 +488,12 @@ export default function Workbench() {
           onResizing={setResizing}
         />
 
-        <section className="min-h-0">
+        <section
+          id="workbench-preview-panel"
+          role="tabpanel"
+          aria-labelledby="workbench-preview-tab"
+          className={`${activePane === 'preview' ? 'block' : 'hidden'} min-h-0 lg:block`}
+        >
           <Sheet state={preview} onPickSource={jumpToSource} onAskAgent={askAboutSelection} />
         </section>
 
@@ -457,7 +506,12 @@ export default function Workbench() {
           onResizing={setResizing}
         />
 
-        <section className="min-h-0">
+        <section
+          id="workbench-agent-panel"
+          role="tabpanel"
+          aria-labelledby="workbench-agent-tab"
+          className={`${activePane === 'agent' ? 'block' : 'hidden'} min-h-0 lg:block`}
+        >
           <Chat
             items={items}
             busy={busy}
@@ -520,7 +574,7 @@ function PaneSeparator({
       onPointerMove={move}
       onPointerUp={release}
       onPointerCancel={release}
-      className="relative h-auto cursor-col-resize touch-none border-0 bg-ink-700 transition-colors hover:bg-ochre focus-visible:z-10 focus-visible:bg-ochre"
+      className="relative hidden h-auto cursor-col-resize touch-none border-0 bg-ink-700 transition-colors hover:bg-ochre focus-visible:z-10 focus-visible:bg-ochre lg:block"
     />
   );
 }

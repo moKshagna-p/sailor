@@ -1,11 +1,21 @@
 export type PaneWidths = { source: number; preview: number; agent: number };
 export type PaneBoundary = 'source' | 'agent';
+export type WorkbenchPane = 'source' | 'preview' | 'agent';
 
 export const PANE_HANDLE_WIDTH = 6;
 export const PANE_MIN = { source: 240, preview: 280, agent: 300 } as const;
+export const WORKBENCH_PANES: readonly WorkbenchPane[] = ['source', 'preview', 'agent'];
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
+
+export function movePaneTab(current: WorkbenchPane, direction: -1 | 1): WorkbenchPane {
+  const index = WORKBENCH_PANES.indexOf(current);
+  return (
+    WORKBENCH_PANES[(index + direction + WORKBENCH_PANES.length) % WORKBENCH_PANES.length] ??
+    current
+  );
+}
 
 export function parsePaneWidths(raw: string | null): PaneWidths | null {
   if (!raw) return null;
