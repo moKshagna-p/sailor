@@ -30,7 +30,7 @@ export async function ensureUser(email: string, name?: string): Promise<string> 
   if (found) return found.id;
 
   const id = createId('usr');
-  await db.insert(users).values({ id, email, name: name ?? null });
+  await db.insert(users).values({ id, email, name: name ?? email });
   return id;
 }
 

@@ -1,13 +1,20 @@
 {
-	"version": "7",
-	"dialect": "postgresql",
-	"entries": [
-		{
-			"idx": 0,
-			"version": "7",
-			"when": 1784000297358,
-			"tag": "0000_absurd_lord_tyger",
-			"breakpoints": true
-		}
-	]
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1784000297358,
+      "tag": "0000_absurd_lord_tyger",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787137314587,
+      "tag": "0001_tired_maestro",
+      "breakpoints": true
+    }
+  ]
 }
