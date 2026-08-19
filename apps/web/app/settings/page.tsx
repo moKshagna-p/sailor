@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { AccountMenu } from '../../components/account-menu.tsx';
 import { api, type ProviderInfo } from '../../lib/api.ts';
+import { prefersOAuth, providerStatus } from '../../lib/provider-settings.ts';
 
 const PROVIDER_HELP: Record<string, string> = {
   anthropic: 'Claude models',
@@ -12,14 +13,6 @@ const PROVIDER_HELP: Record<string, string> = {
   google: 'Gemini models',
   openrouter: 'Claude, GPT, Gemini and more through one account',
 };
-
-/**
- * A provider you can connect right now, with no API key to find and nothing for
- * an operator to configure first. Derived rather than hardcoded to a provider
- * id, so a future registration-free driver surfaces here on its own.
- */
-const isOneClick = (p: ProviderInfo): boolean =>
-  p.oauthFlow === 'redirect' && p.oauthMissingEnv.length === 0;
 
 export default function SettingsPage() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -119,30 +112,7 @@ export default function SettingsPage() {
         <p className="mt-7 border-l-2 border-strike py-1 pl-3 text-sm text-strike">{error}</p>
       )}
 
-      {!loading && credentials.length === 0 && providers.some(isOneClick) && (
-        <section className="mt-10 border border-ochre/40 bg-ochre/[0.04] p-5">
-          <h2 className="font-mono text-[11px] tracking-widest text-ochre uppercase">
-            Fastest way in
-          </h2>
-          {providers.filter(isOneClick).map((provider) => (
-            <div key={provider.id}>
-              <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-chalk-300">
-                <strong className="text-chalk-100">{provider.label}</strong> needs no API key and no
-                setup. Approve it once and Sailor gets a key of its own, which reaches Claude, GPT
-                and Gemini through a single connection — including models that cost nothing to run.
-              </p>
-              <a
-                href={api.oauthAuthorizeUrl(provider.id)}
-                className="mt-4 inline-block bg-ochre px-4 py-2 font-mono text-[11px] text-ink-900 hover:bg-ochre/85"
-              >
-                Connect {provider.label}
-              </a>
-            </div>
-          ))}
-        </section>
-      )}
-
-      <section className="mt-12">
+      <section className="mt-10">
         <h2 className="font-mono text-[11px] tracking-widest text-ink-500 uppercase">Providers</h2>
         <div className="mt-4 divide-y divide-ink-700 border-y border-ink-700">
           {loading && <p className="py-5 text-sm text-ink-500">Loading providers…</p>}
@@ -221,11 +191,15 @@ function ProviderRow({
             {PROVIDER_HELP[provider.id] ?? provider.id}
           </p>
         </div>
-        {credential ? (
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-[10.5px] tracking-wider text-added uppercase">
-              {credential.kind === 'oauth' ? 'Connected · Account' : 'Connected · API key'}
-            </span>
+        <div className="flex items-center gap-3">
+          <span
+            className={`font-mono text-[10.5px] tracking-wider uppercase ${
+              credential ? 'text-added' : provider.available ? 'text-ochre' : 'text-ink-500'
+            }`}
+          >
+            {providerStatus(provider, credential)}
+          </span>
+          {credential && (
             <button
               type="button"
               onClick={() => void onRemove(provider.id)}
@@ -233,16 +207,8 @@ function ProviderRow({
             >
               Remove
             </button>
-          </div>
-        ) : provider.available ? (
-          <span className="font-mono text-[10.5px] tracking-wider text-ochre uppercase">
-            Env key
-          </span>
-        ) : (
-          <span className="font-mono text-[10.5px] tracking-wider text-ink-500 uppercase">
-            Not connected
-          </span>
-        )}
+          )}
+        </div>
       </div>
 
       {!credential && provider.oauthFlow === 'redirect' && (
@@ -256,7 +222,7 @@ function ProviderRow({
             Connect {provider.label} account
           </a>
           <span className="font-mono text-[11px] text-ink-500">
-            {isOneClick(provider) ? 'no API key needed' : 'or paste an API key below'}
+            {prefersOAuth(provider) ? 'recommended' : 'or use an API key'}
           </span>
         </div>
       )}
@@ -325,29 +291,34 @@ function ProviderRow({
       )}
 
       {!credential && (
-        <form onSubmit={submit} className="mt-4 flex max-w-xl gap-2">
-          <label className="sr-only" htmlFor={`${provider.id}-key`}>
-            {provider.label} API key
-          </label>
-          <input
-            id={`${provider.id}-key`}
-            type="password"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            minLength={8}
-            required
-            autoComplete="off"
-            placeholder="Paste API key"
-            className="min-w-0 flex-1 border border-ink-600 bg-ink-900 px-3 py-2 font-mono text-[12px] text-chalk-100 placeholder:text-ink-500 focus:border-ochre focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={saving || apiKey.length < 8}
-            className="shrink-0 border border-ochre px-3 py-2 font-mono text-[11px] text-ochre hover:bg-ochre hover:text-ink-900 disabled:opacity-30"
-          >
-            {saving ? 'Saving…' : 'Save key'}
-          </button>
-        </form>
+        <details className="mt-4 max-w-xl group">
+          <summary className="w-fit cursor-pointer font-mono text-[11px] text-ink-500 hover:text-chalk-200">
+            {prefersOAuth(provider) ? 'Use an API key instead' : 'Add an API key'}
+          </summary>
+          <form onSubmit={submit} className="mt-3 flex gap-2">
+            <label className="sr-only" htmlFor={`${provider.id}-key`}>
+              {provider.label} API key
+            </label>
+            <input
+              id={`${provider.id}-key`}
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              minLength={8}
+              required
+              autoComplete="off"
+              placeholder="Paste API key"
+              className="min-w-0 flex-1 border border-ink-600 bg-ink-900 px-3 py-2 font-mono text-[12px] text-chalk-100 placeholder:text-ink-500 focus:border-ochre focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={saving || apiKey.length < 8}
+              className="shrink-0 border border-ochre px-3 py-2 font-mono text-[11px] text-ochre hover:bg-ochre hover:text-ink-900 disabled:opacity-30"
+            >
+              {saving ? 'Saving…' : 'Save key'}
+            </button>
+          </form>
+        </details>
       )}
       {error && <p className="mt-3 text-[12px] text-strike">{error}</p>}
     </article>
