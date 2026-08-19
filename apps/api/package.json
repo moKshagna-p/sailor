@@ -17,6 +17,7 @@
     "@sailor/latex": "workspace:*",
     "@sailor/providers": "workspace:*",
     "ai": "7",
+    "better-auth": "^1.7.1",
     "elysia": "^1.4.29",
     "zod": "4"
   }

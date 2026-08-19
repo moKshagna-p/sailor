@@ -2,6 +2,7 @@ import { cors } from '@elysiajs/cors';
 import { errorMessage, ProviderId, ResumeTree, summariseDiagnostics } from '@sailor/core';
 import {
   commitVersion,
+  consumeProviderOAuthAttempt,
   createJobTarget,
   createResume,
   deleteCredential,
@@ -13,6 +14,7 @@ import {
   listResumes,
   listVersions,
   rollbackTo,
+  saveProviderOAuthAttempt,
   upsertCredential,
 } from '@sailor/db';
 import { compileWithTectonic, parseSyncTex, prewarm, STARTER_RESUME } from '@sailor/latex';
@@ -20,8 +22,9 @@ import { allDrivers, availableProviders, getDriver } from '@sailor/providers';
 import { Elysia } from 'elysia';
 import { z } from 'zod';
 import { attachAcp } from './acp-bridge.ts';
-import { currentUserId } from './auth.ts';
+import { auth, currentUserId } from './auth.ts';
 import { credentialStore } from './credential-store.ts';
+import { UnauthorizedError } from './session.ts';
 
 const PORT = Number(process.env.API_PORT ?? 3001);
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
@@ -58,15 +61,7 @@ class CredentialError extends Error {
   }
 }
 
-type OAuthAttempt = {
-  userId: string;
-  provider: ProviderId;
-  codeVerifier: string | null;
-  expiresAt: number;
-};
-
 const OAUTH_ATTEMPT_TTL_MS = 10 * 60 * 1000;
-const oauthAttempts = new Map<string, OAuthAttempt>();
 
 function randomOAuthValue(): string {
   return Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url');
@@ -75,12 +70,6 @@ function randomOAuthValue(): string {
 async function pkceChallenge(verifier: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
   return Buffer.from(digest).toString('base64url');
-}
-
-function removeExpiredOAuthAttempts(now = Date.now()): void {
-  for (const [state, attempt] of oauthAttempts) {
-    if (attempt.expiresAt <= now) oauthAttempts.delete(state);
-  }
 }
 
 function oauthCallbackUrl(provider: ProviderId): string {
@@ -113,7 +102,12 @@ async function requireVersionOwner(userId: string, versionId: string): Promise<v
 
 const app = new Elysia()
   .use(cors({ origin: WEB_ORIGIN, credentials: true }))
+  .mount(auth.handler)
   .onError(({ error, code, set }) => {
+    if (error instanceof UnauthorizedError) {
+      set.status = 401;
+      return { error: error.message };
+    }
     if (error instanceof ValidationError) {
       set.status = 400;
       return { error: error.message };
@@ -234,14 +228,14 @@ const app = new Elysia()
       throw new OAuthError(`OAuth is not configured for ${provider}`, 404);
     }
 
-    removeExpiredOAuthAttempts();
     const state = randomOAuthValue();
     const codeVerifier = oauth.usesPkce ? randomOAuthValue() : null;
-    oauthAttempts.set(state, {
+    await saveProviderOAuthAttempt({
+      state,
       userId,
       provider,
       codeVerifier,
-      expiresAt: Date.now() + OAUTH_ATTEMPT_TTL_MS,
+      expiresAt: new Date(Date.now() + OAUTH_ATTEMPT_TTL_MS),
     });
 
     const codeChallenge = codeVerifier ? await pkceChallenge(codeVerifier) : null;
@@ -291,10 +285,9 @@ const app = new Elysia()
         }),
         query,
       );
-      const attempt = oauthAttempts.get(input.state);
-      oauthAttempts.delete(input.state);
+      const attempt = await consumeProviderOAuthAttempt(input.state);
 
-      if (!attempt || attempt.expiresAt <= Date.now()) {
+      if (!attempt) {
         throw new OAuthError('That OAuth sign-in link has expired. Start again from Sailor.', 409);
       }
       if (attempt.provider !== provider) {
@@ -364,9 +357,8 @@ const app = new Elysia()
     const code = pasted.slice(0, hash);
     const state = pasted.slice(hash + 1);
 
-    const attempt = oauthAttempts.get(state);
-    oauthAttempts.delete(state);
-    if (!attempt || attempt.expiresAt <= Date.now()) {
+    const attempt = await consumeProviderOAuthAttempt(state);
+    if (!attempt) {
       throw new OAuthError(
         'That code has expired or was already used. Click Connect and approve again.',
         409,
@@ -577,13 +569,19 @@ const app = new Elysia()
    * nothing errors. An explicit map is the only thing that survives.
    */
   .ws('/acp', {
+    // Reject the upgrade itself; an unauthenticated browser never gets an ACP
+    // peer capable of sending agent requests.
+    beforeHandle: async ({ headers }) => {
+      await currentUserId(headers);
+    },
     // Synchronous on purpose — see the note on attachAcp. Awaiting anything here
     // loses the client's first frame.
     open(ws) {
+      const headers = ws.data.headers;
       peers.set(
         ws.id,
         attachAcp({ send: (raw) => ws.send(raw), close: () => ws.close() }, () =>
-          currentUserId({}),
+          currentUserId(headers),
         ),
       );
     },
