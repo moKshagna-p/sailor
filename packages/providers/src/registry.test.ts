@@ -135,3 +135,11 @@ test('every advertised model supports tools — the agent cannot run without the
   expect(models.length).toBeGreaterThan(0);
   expect(models.every((m) => m.supportsTools)).toBe(true);
 });
+
+test('Google advertises current Gemini models, not retired aliases', () => {
+  const modelIds = getDriver('google').models.map((model) => model.modelId);
+  expect(modelIds).toContain('gemini-3.1-pro-preview');
+  expect(modelIds).toContain('gemini-3.6-flash');
+  expect(modelIds).not.toContain('gemini-3-pro-preview');
+  expect(modelIds).not.toContain('gemini-2.5-flash');
+});

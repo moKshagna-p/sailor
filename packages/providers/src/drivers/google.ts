@@ -26,16 +26,16 @@ export const googleDriver: ProviderDriver = {
   models: [
     {
       provider: 'google',
-      modelId: 'gemini-3-pro-preview',
-      label: 'Gemini 3 Pro',
+      modelId: 'gemini-3.1-pro-preview',
+      label: 'Gemini 3.1 Pro',
       contextWindow: 1_000_000,
       supportsTools: true,
       tier: 'frontier',
     },
     {
       provider: 'google',
-      modelId: 'gemini-2.5-flash',
-      label: 'Gemini 2.5 Flash',
+      modelId: 'gemini-3.6-flash',
+      label: 'Gemini 3.6 Flash',
       contextWindow: 1_000_000,
       supportsTools: true,
       tier: 'fast',
