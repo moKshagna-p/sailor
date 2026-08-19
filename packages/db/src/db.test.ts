@@ -4,6 +4,7 @@ import { hashTree } from '@sailor/core';
 import { decryptSecret, encryptSecret } from './crypto.ts';
 import {
   commitVersion,
+  consumeProviderOAuthAttempt,
   createJobTarget,
   createResume,
   ensureUser,
@@ -12,6 +13,7 @@ import {
   isVersionOwnedBy,
   listVersions,
   rollbackTo,
+  saveProviderOAuthAttempt,
 } from './queries.ts';
 
 const tree = (bullet: string): ResumeTree => ({
@@ -113,4 +115,33 @@ test('ownership checks reject another user’s resume, version, and job target',
   expect(await isResumeOwnedBy(otherUserId, resumeId)).toBe(false);
   expect(await isVersionOwnedBy(otherUserId, versionId)).toBe(false);
   expect(await isJobTargetOwnedBy(otherUserId, jobTargetId)).toBe(false);
+});
+
+test('provider OAuth attempts are one-use and reject expired state', async () => {
+  const userId = await ensureUser(`oauth-${crypto.randomUUID()}@sailor.local`);
+  const state = crypto.randomUUID();
+  await saveProviderOAuthAttempt({
+    state,
+    userId,
+    provider: 'google',
+    codeVerifier: 'verifier',
+    expiresAt: new Date(Date.now() + 60_000),
+  });
+
+  expect(await consumeProviderOAuthAttempt(state)).toMatchObject({
+    userId,
+    provider: 'google',
+    codeVerifier: 'verifier',
+  });
+  expect(await consumeProviderOAuthAttempt(state)).toBeNull();
+
+  const expiredState = crypto.randomUUID();
+  await saveProviderOAuthAttempt({
+    state: expiredState,
+    userId,
+    provider: 'google',
+    codeVerifier: null,
+    expiresAt: new Date(Date.now() - 1),
+  });
+  expect(await consumeProviderOAuthAttempt(expiredState)).toBeNull();
 });

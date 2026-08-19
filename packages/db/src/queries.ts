@@ -6,7 +6,7 @@ import type {
   ResumeTree,
   ResumeVersion,
 } from '@sailor/core';
-import { createId, hashTree } from '@sailor/core';
+import { createId, hashTree, ProviderId as ProviderIdSchema } from '@sailor/core';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { db } from './client.ts';
 import { decryptSecret, encryptSecret } from './crypto.ts';
@@ -14,11 +14,40 @@ import {
   agentSessions,
   jobTargets,
   providerCredentials,
+  providerOAuthAttempts,
   resumes,
   resumeVersions,
   sessionMessages,
   users,
 } from './schema.ts';
+
+export async function saveProviderOAuthAttempt(input: {
+  state: string;
+  userId: string;
+  provider: ProviderId;
+  codeVerifier: string | null;
+  expiresAt: Date;
+}): Promise<void> {
+  await db.insert(providerOAuthAttempts).values(input);
+}
+
+export async function consumeProviderOAuthAttempt(state: string): Promise<{
+  userId: string;
+  provider: ProviderId;
+  codeVerifier: string | null;
+} | null> {
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .delete(providerOAuthAttempts)
+      .where(eq(providerOAuthAttempts.state, state))
+      .returning();
+    const row = rows[0];
+    if (!row || row.expiresAt <= new Date()) return null;
+    const provider = ProviderIdSchema.safeParse(row.provider);
+    if (!provider.success) return null;
+    return { userId: row.userId, provider: provider.data, codeVerifier: row.codeVerifier };
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Users — placeholder until Better Auth owns this. See schema.ts.
