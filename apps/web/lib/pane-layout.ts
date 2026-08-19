@@ -7,6 +7,30 @@ export const PANE_MIN = { source: 240, preview: 280, agent: 300 } as const;
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
 
+export function parsePaneWidths(raw: string | null): PaneWidths | null {
+  if (!raw) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== 'object' || value === null) return null;
+    if (!('source' in value) || !('preview' in value) || !('agent' in value)) return null;
+    if (
+      typeof value.source !== 'number' ||
+      typeof value.preview !== 'number' ||
+      typeof value.agent !== 'number' ||
+      !Number.isFinite(value.source) ||
+      !Number.isFinite(value.preview) ||
+      !Number.isFinite(value.agent) ||
+      value.source <= 0 ||
+      value.preview <= 0 ||
+      value.agent <= 0
+    )
+      return null;
+    return { source: value.source, preview: value.preview, agent: value.agent };
+  } catch {
+    return null;
+  }
+}
+
 export function resizePaneLayout(
   containerWidth: number,
   current: PaneWidths,

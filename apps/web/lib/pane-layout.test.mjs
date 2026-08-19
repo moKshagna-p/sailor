@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { resizePaneLayout } from './pane-layout.ts';
+import { parsePaneWidths, resizePaneLayout } from './pane-layout.ts';
 
 const start = { source: 360, preview: 440, agent: 400 };
 
@@ -35,4 +35,14 @@ test('keyboard movement uses the same clamping path', () => {
     preview: 404,
     agent: 400,
   });
+});
+
+test('stored widths are accepted only when all three values are finite numbers', () => {
+  expect(parsePaneWidths('{"source":320,"preview":480,"agent":360}')).toEqual({
+    source: 320,
+    preview: 480,
+    agent: 360,
+  });
+  expect(parsePaneWidths('{"source":0,"preview":"wide","agent":360}')).toBeNull();
+  expect(parsePaneWidths('not json')).toBeNull();
 });
