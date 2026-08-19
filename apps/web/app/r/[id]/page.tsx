@@ -4,12 +4,32 @@ import type { ResumeTree, ResumeVersion } from '@sailor/core';
 import type { SourceLocation } from '@sailor/latex/synctex';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Chat, type ChatHandle, type ChatItem, reduceEvent } from '../../../components/chat.tsx';
 import { Editor, type EditorHandle } from '../../../components/editor.tsx';
 import { Sheet } from '../../../components/sheet.tsx';
 import { AcpClient, type ElicitAsk, type PermissionAsk } from '../../../lib/acp-client.ts';
 import { api, type ProviderInfo } from '../../../lib/api.ts';
+import {
+  movePaneTab,
+  PANE_HANDLE_WIDTH,
+  type PaneBoundary,
+  type PaneWidths,
+  parsePaneWidths,
+  resizePaneLayout,
+  WORKBENCH_PANES,
+  type WorkbenchPane,
+} from '../../../lib/pane-layout.ts';
 import { usePreview } from '../../../lib/use-preview.ts';
 
 type JobDraft = {
@@ -21,6 +41,8 @@ type JobDraft = {
 
 /** How much of a selection is quoted into the composer before it is elided. */
 const QUOTE_LIMIT = 160;
+const PANE_STORAGE_KEY = 'sailor:workbench-panes';
+const DEFAULT_PANES: PaneWidths = { source: 360, preview: 520, agent: 400 };
 
 const EMPTY_JOB_DRAFT: JobDraft = {
   company: '',
@@ -56,8 +78,53 @@ export default function Workbench() {
   const sessionRef = useRef<string | null>(null);
   const editorRef = useRef<EditorHandle | null>(null);
   const chatRef = useRef<ChatHandle | null>(null);
+  const workbenchRef = useRef<HTMLElement | null>(null);
+  const [paneWidths, setPaneWidths] = useState(DEFAULT_PANES);
+  const [resizing, setResizing] = useState(false);
+  const [activePane, setActivePane] = useState<WorkbenchPane>('source');
 
   const preview = usePreview(tree);
+
+  useEffect(() => {
+    const workbench = workbenchRef.current;
+    if (!workbench) return;
+
+    const fit = () =>
+      setPaneWidths((current) => {
+        const stored = parsePaneWidths(localStorage.getItem(PANE_STORAGE_KEY));
+        const widths = stored ?? current;
+        return resizePaneLayout(workbench.clientWidth, widths, 'source', widths.source);
+      });
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(workbench);
+    return () => observer.disconnect();
+  }, []);
+
+  const resizePanes = useCallback((boundary: PaneBoundary, clientX: number) => {
+    const workbench = workbenchRef.current;
+    if (!workbench) return;
+    const pointerX = clientX - workbench.getBoundingClientRect().left;
+    setPaneWidths((current) => {
+      const next = resizePaneLayout(workbench.clientWidth, current, boundary, pointerX);
+      localStorage.setItem(PANE_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const nudgePanes = useCallback((boundary: PaneBoundary, delta: number) => {
+    const workbench = workbenchRef.current;
+    if (!workbench) return;
+    setPaneWidths((current) => {
+      const pointerX =
+        boundary === 'source'
+          ? current.source + delta
+          : workbench.clientWidth - current.agent + delta;
+      const next = resizePaneLayout(workbench.clientWidth, current, boundary, pointerX);
+      localStorage.setItem(PANE_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   const entryFile = useMemo(() => tree?.files.find((f) => f.path === tree.entry) ?? null, [tree]);
 
@@ -223,6 +290,9 @@ export default function Workbench() {
   }, [save]);
 
   const noProviders = providers.length > 0 && !providers.some((p) => p.available);
+  const workbenchStyle: CSSProperties & Record<'--workbench-columns', string> = {
+    '--workbench-columns': `${paneWidths.source}px ${PANE_HANDLE_WIDTH}px ${paneWidths.preview}px ${PANE_HANDLE_WIDTH}px minmax(0, 1fr)`,
+  };
 
   const createJobTarget = useCallback(async (draft: JobDraft) => {
     const { jobTargetId } = await api.createJob({
@@ -255,7 +325,7 @@ export default function Workbench() {
 
   return (
     <div className="flex h-screen flex-col">
-      <header className="rule-b flex shrink-0 items-center justify-between px-4 py-2.5">
+      <header className="rule-b flex shrink-0 items-center justify-between gap-4 overflow-x-auto px-4 py-2.5">
         <div className="flex items-baseline gap-4">
           <Link
             href="/"
@@ -355,8 +425,50 @@ export default function Workbench() {
         />
       )}
 
-      <main className="grid min-h-0 flex-1 grid-cols-[1fr_1fr_400px]">
-        <section className="rule-r flex min-h-0 flex-col">
+      <div
+        role="tablist"
+        aria-label="Workbench panes"
+        className="rule-b grid grid-cols-3 lg:hidden"
+      >
+        {WORKBENCH_PANES.map((pane) => (
+          <button
+            key={pane}
+            id={`workbench-${pane}-tab`}
+            type="button"
+            role="tab"
+            aria-controls={`workbench-${pane}-panel`}
+            aria-selected={activePane === pane}
+            tabIndex={activePane === pane ? 0 : -1}
+            onClick={() => setActivePane(pane)}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+              event.preventDefault();
+              const next = movePaneTab(pane, event.key === 'ArrowLeft' ? -1 : 1);
+              setActivePane(next);
+              document.getElementById(`workbench-${next}-tab`)?.focus();
+            }}
+            className={`px-3 py-2 font-mono text-[10.5px] tracking-widest uppercase ${
+              activePane === pane ? 'bg-ochre text-ink-900' : 'text-ink-500'
+            }`}
+          >
+            {pane}
+          </button>
+        ))}
+      </div>
+
+      <main
+        ref={workbenchRef}
+        className={`grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[var(--workbench-columns)] ${
+          resizing ? 'select-none' : ''
+        }`}
+        style={workbenchStyle}
+      >
+        <section
+          id="workbench-source-panel"
+          role="tabpanel"
+          aria-labelledby="workbench-source-tab"
+          className={`${activePane === 'source' ? 'flex' : 'hidden'} min-h-0 flex-col lg:flex`}
+        >
           <header className="rule-b flex items-center justify-between px-4 py-2.5">
             <span className="font-mono text-[11px] tracking-widest text-ink-500 uppercase">
               {tree?.entry ?? 'source'}
@@ -367,11 +479,39 @@ export default function Workbench() {
           </div>
         </section>
 
-        <section className="rule-r min-h-0">
+        <PaneSeparator
+          label="Resize source and preview"
+          boundary="source"
+          value={paneWidths.source}
+          onResize={resizePanes}
+          onNudge={nudgePanes}
+          onResizing={setResizing}
+        />
+
+        <section
+          id="workbench-preview-panel"
+          role="tabpanel"
+          aria-labelledby="workbench-preview-tab"
+          className={`${activePane === 'preview' ? 'block' : 'hidden'} min-h-0 lg:block`}
+        >
           <Sheet state={preview} onPickSource={jumpToSource} onAskAgent={askAboutSelection} />
         </section>
 
-        <section className="min-h-0">
+        <PaneSeparator
+          label="Resize preview and agent"
+          boundary="agent"
+          value={paneWidths.source + paneWidths.preview + PANE_HANDLE_WIDTH}
+          onResize={resizePanes}
+          onNudge={nudgePanes}
+          onResizing={setResizing}
+        />
+
+        <section
+          id="workbench-agent-panel"
+          role="tabpanel"
+          aria-labelledby="workbench-agent-tab"
+          className={`${activePane === 'agent' ? 'block' : 'hidden'} min-h-0 lg:block`}
+        >
           <Chat
             items={items}
             busy={busy}
@@ -385,6 +525,57 @@ export default function Workbench() {
         </section>
       </main>
     </div>
+  );
+}
+
+function PaneSeparator({
+  label,
+  boundary,
+  value,
+  onResize,
+  onNudge,
+  onResizing,
+}: {
+  label: string;
+  boundary: PaneBoundary;
+  value: number;
+  onResize: (boundary: PaneBoundary, clientX: number) => void;
+  onNudge: (boundary: PaneBoundary, delta: number) => void;
+  onResizing: (resizing: boolean) => void;
+}) {
+  const move = (event: ReactPointerEvent<HTMLHRElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) onResize(boundary, event.clientX);
+  };
+
+  const release = (event: ReactPointerEvent<HTMLHRElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    onResizing(false);
+  };
+
+  const keyDown = (event: ReactKeyboardEvent<HTMLHRElement>) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    onNudge(boundary, event.key === 'ArrowLeft' ? -24 : 24);
+  };
+
+  return (
+    <hr
+      aria-label={label}
+      aria-orientation="vertical"
+      aria-valuenow={Math.round(value)}
+      tabIndex={0}
+      onKeyDown={keyDown}
+      onPointerDown={(event) => {
+        event.currentTarget.setPointerCapture(event.pointerId);
+        onResizing(true);
+      }}
+      onPointerMove={move}
+      onPointerUp={release}
+      onPointerCancel={release}
+      className="relative hidden h-auto cursor-col-resize touch-none border-0 bg-ink-700 transition-colors hover:bg-ochre focus-visible:z-10 focus-visible:bg-ochre lg:block"
+    />
   );
 }
 
