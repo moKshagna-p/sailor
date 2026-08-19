@@ -2,9 +2,16 @@ import type { LatexDiagnostic, PublicCredential, ResumeTree, ResumeVersion } fro
 
 export const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
-async function json<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
+
+export async function json<T>(
+  path: string,
+  init?: RequestInit,
+  fetcher: Fetcher = fetch,
+): Promise<T> {
+  const res = await fetcher(`${API}${path}`, {
     ...init,
+    credentials: 'include',
     headers: { 'content-type': 'application/json', ...init?.headers },
   });
 
