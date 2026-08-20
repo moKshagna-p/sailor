@@ -99,17 +99,24 @@ More depth, kept current in `docs/`:
 
 ## Running it
 
-You need [Bun](https://bun.sh) and Docker (for Postgres).
+You need [Bun](https://bun.sh) and a Postgres database. A hosted database such
+as Neon works without Docker.
 
 ```sh
 git clone https://github.com/moKshagna-p/sailor.git
 cd sailor
 
-cp .env.example .env            # set SAILOR_ENCRYPTION_KEY; add provider keys if you have them
+cp .env.example .env            # add DB, encryption, and login OAuth secrets
 bun run scripts/install-tectonic.ts
-bun run setup                   # install deps, start Postgres, run migrations
+bun install
+bun run db:migrate
 bun run dev                     # web on :3000, api on :3001
 ```
+
+Generate `BETTER_AUTH_SECRET` and `SAILOR_ENCRYPTION_KEY` independently with
+`openssl rand -base64 32`. Register the login callbacks as
+`http://localhost:3001/api/auth/callback/google` and
+`http://localhost:3001/api/auth/callback/github`.
 
 Then open http://localhost:3000, create a resume (a starter template compiles out
 of the box), and connect a model in **Settings**.
@@ -119,9 +126,9 @@ and no configuration — approve it once and Sailor receives a key of its own,
 reaching Claude, GPT, and Gemini through a single connection, including two
 free tool-capable models so a zero-credit account still gets a working agent.
 
-Otherwise paste an API key for any provider. Keys are verified with the provider
-before they're stored, so a typo is rejected immediately rather than discovered
-mid-conversation. Two caveats worth knowing up front: connecting an Anthropic
+Otherwise paste an API key for any provider in Settings. The default environment
+does not need model keys: the API verifies and encrypts each user's credential
+before storage. Two caveats worth knowing up front: connecting an Anthropic
 account gives you a Claude *subscription* token, which Anthropic permits only
 inside Claude Code — for Sailor you want an API key from
 [console.anthropic.com](https://console.anthropic.com). And OpenAI and Google

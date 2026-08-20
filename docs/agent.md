@@ -31,6 +31,9 @@ never create parallel tool definitions.
 - `ask_user` asks for a missing fact and waits for an answer.
 - `edit_resume` is the only content mutation path and is gated.
 
+`web_search` is optional deployment infrastructure: set `EXA_API_KEY`, or
+`BRAVE_SEARCH_API_KEY` as a fallback. `fetch_url` needs neither.
+
 Before `edit_resume` runs, the API sends an ACP
 `session/request_permission` request containing a diff. The browser must answer
 allow or deny. A disconnect is treated as deny. Approved edits require an exact,
