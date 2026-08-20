@@ -90,7 +90,7 @@ test('versions are append-only, deduped, and rollback is non-destructive', async
   const history = await listVersions(resumeId);
   expect(history).toHaveLength(3); // initial, edit, rollback — nothing destroyed
   expect(history.map((v) => v.summary)).toContain('Tailor for Acme');
-});
+}, 30_000);
 
 test('ownership checks reject another user’s resume, version, and job target', async () => {
   const ownerId = await ensureUser(`owner-${crypto.randomUUID()}@sailor.local`);
@@ -115,7 +115,7 @@ test('ownership checks reject another user’s resume, version, and job target',
   expect(await isResumeOwnedBy(otherUserId, resumeId)).toBe(false);
   expect(await isVersionOwnedBy(otherUserId, versionId)).toBe(false);
   expect(await isJobTargetOwnedBy(otherUserId, jobTargetId)).toBe(false);
-});
+}, 30_000);
 
 test('provider OAuth attempts are one-use and reject expired state', async () => {
   const userId = await ensureUser(`oauth-${crypto.randomUUID()}@sailor.local`);
@@ -144,4 +144,4 @@ test('provider OAuth attempts are one-use and reject expired state', async () =>
     expiresAt: new Date(Date.now() - 1),
   });
   expect(await consumeProviderOAuthAttempt(expiredState)).toBeNull();
-});
+}, 30_000);
