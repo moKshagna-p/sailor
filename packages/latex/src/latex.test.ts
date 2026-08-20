@@ -16,6 +16,21 @@ test('the starter resume compiles to a real PDF', async () => {
   expect(result.pdf.byteLength).toBeGreaterThan(1000);
 }, 60_000);
 
+test('a resume using a standard LaTeX package compiles', async () => {
+  const result = await compileWithTectonic({
+    entry: 'main.tex',
+    files: [
+      {
+        path: 'main.tex',
+        content: '\\documentclass{article}\\usepackage{latexsym}\\begin{document}ok\\end{document}',
+      },
+    ],
+  });
+
+  if (!result.ok) throw new Error(`Expected success, got:\n${result.log}`);
+  expect(new TextDecoder().decode(result.pdf.slice(0, 5))).toBe('%PDF-');
+}, 60_000);
+
 test('a broken document fails with a diagnostic the agent can act on', async () => {
   const result = await compileWithTectonic({
     entry: 'main.tex',

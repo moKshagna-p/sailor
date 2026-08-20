@@ -24,7 +24,9 @@ import { STARTER_RESUME } from './template.ts';
 const PROJECT_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const CACHE_DIR = resolve(PROJECT_ROOT, process.env.TECTONIC_CACHE_DIR ?? '.tectonic-cache');
 const BIN = resolve(PROJECT_ROOT, process.env.TECTONIC_BIN ?? './bin/tectonic');
-const TIMEOUT_MS = Number(process.env.LATEX_TIMEOUT_MS ?? 20_000);
+const BUNDLE =
+  process.env.TECTONIC_BUNDLE ?? 'https://ttassets.z13.web.core.windows.net/tlextras-2022.0r0.tar';
+const TIMEOUT_MS = Number(process.env.LATEX_TIMEOUT_MS ?? 60_000);
 
 /**
  * The first compile on a cold machine downloads the CTAN bundle, which takes far
@@ -38,7 +40,7 @@ const TIMEOUT_MS = Number(process.env.LATEX_TIMEOUT_MS ?? 20_000);
  */
 const PREWARM_TIMEOUT_MS = Number(process.env.LATEX_PREWARM_TIMEOUT_MS ?? 600_000);
 
-const gate = new Semaphore(Number(process.env.LATEX_POOL_SIZE ?? 4));
+const gate = new Semaphore(Number(process.env.LATEX_POOL_SIZE ?? 2));
 
 export async function compileWithTectonic(
   tree: ResumeTree,
@@ -71,6 +73,8 @@ export async function compileWithTectonic(
         '-X',
         'compile',
         entry.path,
+        '--bundle',
+        BUNDLE,
         // Disables shell-escape and every other known-insecure TeX feature. The
         // input is a file a stranger uploaded; without this, \write18 is RCE.
         '--untrusted',
