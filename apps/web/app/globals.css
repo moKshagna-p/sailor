@@ -35,10 +35,9 @@
   --color-strike: #c65f5f;
   --color-added: #7d9a63;
 
-  /* The *-loaded vars are injected by next/font in layout.tsx. */
-  --font-display: var(--font-display-loaded), ui-serif, Georgia, serif;
-  --font-sans: var(--font-sans-loaded), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-mono-loaded), ui-monospace, "SF Mono", monospace;
+  --font-display: ui-serif, Georgia, serif;
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", monospace;
 
   --radius-sheet: 2px;
 }
