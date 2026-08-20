@@ -15,6 +15,27 @@
       "when": 1787137314587,
       "tag": "0001_tired_maestro",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787207615830,
+      "tag": "0002_little_klaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787207625362,
+      "tag": "0003_burly_vengeance",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787207683627,
+      "tag": "0004_bent_smasher",
+      "breakpoints": true
     }
   ]
 }

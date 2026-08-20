@@ -26,6 +26,7 @@ export const accounts = pgTable(
   'accounts',
   {
     id: varchar('id', { length: 32 }).primaryKey(),
+    issuer: text('issuer').notNull(),
     accountId: text('account_id').notNull(),
     providerId: text('provider_id').notNull(),
     userId: varchar('user_id', { length: 32 })
@@ -41,7 +42,10 @@ export const accounts = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index('accounts_user_id_idx').on(table.userId)],
+  (table) => [
+    index('accounts_user_id_idx').on(table.userId),
+    uniqueIndex('accounts_issuer_account_id_idx').on(table.issuer, table.accountId),
+  ],
 );
 
 export const sessions = pgTable(
