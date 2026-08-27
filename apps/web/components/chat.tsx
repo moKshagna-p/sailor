@@ -1,6 +1,7 @@
 'use client';
 
 import { type Ref, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import Markdown from 'react-markdown';
 import type { AgentEvent, ElicitAsk, GapAnalysis, PermissionAsk } from '../lib/acp-client.ts';
 import { DiffView } from './diff-view.tsx';
 
@@ -245,7 +246,9 @@ function ChatRow({ item }: { item: ChatItem }) {
 
   if (item.kind === 'agent') {
     return (
-      <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-chalk-300">{item.text}</p>
+      <div className="space-y-2 text-[13px] leading-relaxed text-chalk-300 [&_a]:text-ochre [&_a]:underline [&_a]:underline-offset-2 [&_blockquote]:border-l-2 [&_blockquote]:border-ink-600 [&_blockquote]:pl-3 [&_code]:bg-ink-800 [&_code]:px-1 [&_code]:font-mono [&_code]:text-[12px] [&_code]:text-ochre [&_h1]:font-display [&_h1]:text-[18px] [&_h1]:text-chalk-100 [&_h2]:font-display [&_h2]:text-[16px] [&_h2]:text-chalk-100 [&_h3]:font-display [&_h3]:text-[15px] [&_h3]:text-chalk-100 [&_li]:pl-1 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_pre]:overflow-x-auto [&_pre]:border [&_pre]:border-ink-700 [&_pre]:bg-ink-850 [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_strong]:font-semibold [&_strong]:text-chalk-100 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
+        <Markdown skipHtml>{item.text}</Markdown>
+      </div>
     );
   }
 
