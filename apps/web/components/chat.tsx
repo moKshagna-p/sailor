@@ -73,7 +73,7 @@ export function Chat({
   }, [items.length, permission, elicit]);
 
   return (
-    <div className="flex h-full flex-col bg-ink-900">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-ink-900">
       <header className="rule-b flex items-center justify-between px-4 py-2.5">
         <span className="font-mono text-[11px] tracking-widest text-ink-500 uppercase">Agent</span>
         <span className="flex items-center gap-1.5 font-mono text-[11px] text-ink-500">
@@ -86,7 +86,7 @@ export function Chat({
         </span>
       </header>
 
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5">
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5">
         {items.length === 0 && !permission && !elicit && (
           <div className="pt-6">
             <p className="text-[13px] leading-relaxed text-ink-500">

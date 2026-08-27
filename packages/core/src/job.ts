@@ -12,6 +12,24 @@ export const JobTargetAnalysisInput = z.object({
 });
 export type JobTargetAnalysisInput = z.infer<typeof JobTargetAnalysisInput>;
 
+export const ChatHistoryItem = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('user'), text: z.string() }),
+  z.object({ kind: z.literal('agent'), text: z.string() }),
+]);
+export type ChatHistoryItem = z.infer<typeof ChatHistoryItem>;
+
+export const ResumeChatHistory = z.object({
+  session: z
+    .object({
+      id: z.string(),
+      model: z.string(),
+      jobTarget: JobTargetFields.extend({ id: z.string() }).nullable(),
+      items: z.array(ChatHistoryItem),
+    })
+    .nullable(),
+});
+export type ResumeChatHistory = z.infer<typeof ResumeChatHistory>;
+
 /**
  * The target the resume is being tailored *to*. `sourceUrl` matters: a JD the
  * agent fetched itself is trustworthy in a way that pasted text is not, and the

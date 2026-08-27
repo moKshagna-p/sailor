@@ -2,6 +2,7 @@ import {
   JobTargetFields,
   type LatexDiagnostic,
   type PublicCredential,
+  ResumeChatHistory,
   type ResumeTree,
   type ResumeVersion,
 } from '@sailor/core';
@@ -74,6 +75,9 @@ export const api = {
   getResume: (id: string) => json<{ version: ResumeVersion }>(`/api/resumes/${id}`),
 
   listVersions: (id: string) => json<{ versions: ResumeVersion[] }>(`/api/resumes/${id}/versions`),
+
+  getChatHistory: async (id: string) =>
+    ResumeChatHistory.parse(await json<unknown>(`/api/resumes/${id}/chat`)),
 
   saveVersion: (id: string, tree: ResumeTree, summary: string, parentId: string | null) =>
     json<{ versionId: string; unchanged: boolean }>(`/api/resumes/${id}/versions`, {

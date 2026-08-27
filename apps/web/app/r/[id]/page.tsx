@@ -73,6 +73,7 @@ export default function Workbench() {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [restoringChat, setRestoringChat] = useState(true);
   const [permission, setPermission] = useState<PermissionAsk | null>(null);
   const [elicit, setElicit] = useState<ElicitAsk | null>(null);
 
@@ -139,16 +140,45 @@ export default function Workbench() {
   }, [resumeId]);
 
   useEffect(() => {
+    let cancelled = false;
+    sessionRef.current = null;
+    setItems([]);
+    setJobTarget(null);
+    setRestoringChat(true);
     void reload();
-    void api.models().then((r) => {
-      setProviders(r.providers);
-      const firstAvailable = r.providers.find((p) => p.available);
-      const firstModel = firstAvailable?.models[0];
-      if (firstAvailable && firstModel) {
-        setModel(`${firstAvailable.id}:${firstModel.modelId}`);
-      }
-    });
-  }, [reload]);
+    void Promise.all([api.models(), api.getChatHistory(resumeId)])
+      .then(([models, history]) => {
+        if (cancelled) return;
+        setProviders(models.providers);
+        const firstAvailable = models.providers.find((provider) => provider.available);
+        const firstModel = firstAvailable?.models[0];
+        setModel(
+          history.session?.model ??
+            (firstModel ? `${firstAvailable.id}:${firstModel.modelId}` : ''),
+        );
+
+        if (history.session) {
+          sessionRef.current = history.session.id;
+          setJobTarget(history.session.jobTarget);
+          setItems(history.session.items);
+        }
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setItems([
+          {
+            kind: 'error',
+            message: cause instanceof Error ? cause.message : 'Could not restore chat history.',
+          },
+        ]);
+      })
+      .finally(() => {
+        if (!cancelled) setRestoringChat(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reload, resumeId]);
 
   // --- ACP -----------------------------------------------------------------
 
@@ -514,12 +544,12 @@ export default function Workbench() {
           id="workbench-agent-panel"
           role="tabpanel"
           aria-labelledby="workbench-agent-tab"
-          className={`${activePane === 'agent' ? 'block' : 'hidden'} min-h-0 lg:block`}
+          className={`${activePane === 'agent' ? 'flex' : 'hidden'} min-h-0 flex-col overflow-hidden lg:flex`}
         >
           <Chat
             items={items}
             busy={busy}
-            connected={connected}
+            connected={connected && !restoringChat}
             permission={permission}
             elicit={elicit}
             onSend={send}

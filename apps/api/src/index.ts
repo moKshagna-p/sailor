@@ -1,5 +1,5 @@
 import { cors } from '@elysiajs/cors';
-import { extractJobTargetFields } from '@sailor/agent';
+import { extractJobTargetFields, toChatHistory } from '@sailor/agent';
 import {
   errorMessage,
   JobTargetAnalysisInput,
@@ -15,11 +15,14 @@ import {
   createResume,
   deleteCredential,
   getCurrentVersion,
+  getJobTarget,
+  getSessionMessages,
   getVersion,
   isResumeOwnedBy,
   isVersionOwnedBy,
   listCredentials,
   listResumes,
+  listSessions,
   listVersions,
   rollbackTo,
   saveProviderOAuthAttempt,
@@ -439,6 +442,26 @@ const app = new Elysia()
     const userId = await currentUserId(headers);
     await requireResumeOwner(userId, params.id);
     return { versions: await listVersions(params.id) };
+  })
+
+  .get('/api/resumes/:id/chat', async ({ headers, params }) => {
+    const userId = await currentUserId(headers);
+    await requireResumeOwner(userId, params.id);
+
+    const session = (await listSessions(params.id))[0];
+    if (!session) return { session: null };
+
+    const jobTarget = session.jobTargetId ? await getJobTarget(session.jobTargetId) : null;
+    return {
+      session: {
+        id: session.id,
+        model: session.model,
+        jobTarget: jobTarget
+          ? { id: jobTarget.id, company: jobTarget.company, role: jobTarget.role }
+          : null,
+        items: toChatHistory(await getSessionMessages(session.id)),
+      },
+    };
   })
 
   /** A user-initiated save from the editor. */
