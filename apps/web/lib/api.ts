@@ -1,4 +1,10 @@
-import type { LatexDiagnostic, PublicCredential, ResumeTree, ResumeVersion } from '@sailor/core';
+import {
+  JobTargetFields,
+  type LatexDiagnostic,
+  type PublicCredential,
+  type ResumeTree,
+  type ResumeVersion,
+} from '@sailor/core';
 
 export const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -114,6 +120,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+
+  analyseJob: async (description: string, model: string) =>
+    JobTargetFields.parse(
+      await json<unknown>('/api/jobs/analyse', {
+        method: 'POST',
+        body: JSON.stringify({ description, model }),
+      }),
+    ),
 
   downloadUrl: (versionId: string) => `${API}/api/versions/${versionId}/pdf`,
 };

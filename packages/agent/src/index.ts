@@ -1,5 +1,6 @@
 export { unifiedDiff } from './diff.ts';
 export type { AgentEvent, AgentEventSink } from './events.ts';
+export { extractJobTargetFields } from './job-target.ts';
 export { runTurn, type TurnResult } from './loop.ts';
 export { systemPrompt } from './prompt.ts';
 export {

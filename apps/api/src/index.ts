@@ -1,5 +1,13 @@
 import { cors } from '@elysiajs/cors';
-import { errorMessage, ProviderId, ResumeTree, summariseDiagnostics } from '@sailor/core';
+import { extractJobTargetFields } from '@sailor/agent';
+import {
+  errorMessage,
+  JobTargetAnalysisInput,
+  ProviderId,
+  parseModelRef,
+  ResumeTree,
+  summariseDiagnostics,
+} from '@sailor/core';
 import {
   commitVersion,
   consumeProviderOAuthAttempt,
@@ -18,7 +26,7 @@ import {
   upsertCredential,
 } from '@sailor/db';
 import { compileWithTectonic, parseSyncTex, prewarm, STARTER_RESUME } from '@sailor/latex';
-import { allDrivers, availableProviders, getDriver } from '@sailor/providers';
+import { allDrivers, availableProviders, getDriver, getModel } from '@sailor/providers';
 import { Elysia } from 'elysia';
 import { z } from 'zod';
 import { attachAcp } from './acp-bridge.ts';
@@ -535,6 +543,36 @@ const app = new Elysia()
 
   // --- Job targets ---------------------------------------------------------
 
+  .post('/api/jobs/analyse', async ({ headers, body }) => {
+    const userId = await currentUserId(headers);
+    const input = parse(JobTargetAnalysisInput, body);
+    let ref: ReturnType<typeof parseModelRef>;
+    try {
+      ref = parseModelRef(input.model);
+    } catch {
+      throw new ValidationError('Choose a valid model.');
+    }
+
+    try {
+      const model = await getModel({
+        userId,
+        provider: ref.provider,
+        modelId: ref.modelId,
+        store: credentialStore,
+      });
+      return await extractJobTargetFields(model, input.description);
+    } catch (cause) {
+      console.error(
+        '[api] job target analysis failed:',
+        cause instanceof Error ? cause.name : 'unknown error',
+      );
+      throw new CredentialError(
+        'The selected model could not read this posting. Choose another model or enter it manually.',
+        502,
+      );
+    }
+  })
+
   .post('/api/jobs', async ({ headers, body }) => {
     const userId = await currentUserId(headers);
     const input = parse(
@@ -550,7 +588,7 @@ const app = new Elysia()
     const id = await createJobTarget({
       userId,
       ...input,
-      // The user typed or pasted this. Only the agent's own fetch_url earns
+      // The user typed, pasted, or uploaded this. Only the agent's own fetch_url earns
       // 'fetched', and the prompt tells the model to treat the two differently.
       provenance: 'pasted',
     });

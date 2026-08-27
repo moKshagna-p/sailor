@@ -1,5 +1,17 @@
 import { z } from 'zod';
 
+export const JobTargetFields = z.object({
+  company: z.string().min(1),
+  role: z.string().min(1),
+});
+export type JobTargetFields = z.infer<typeof JobTargetFields>;
+
+export const JobTargetAnalysisInput = z.object({
+  model: z.string().min(1),
+  description: z.string().min(20).max(200_000),
+});
+export type JobTargetAnalysisInput = z.infer<typeof JobTargetAnalysisInput>;
+
 /**
  * The target the resume is being tailored *to*. `sourceUrl` matters: a JD the
  * agent fetched itself is trustworthy in a way that pasted text is not, and the
@@ -9,7 +21,7 @@ export const JobTarget = z.object({
   id: z.string(),
   company: z.string().min(1),
   role: z.string().min(1),
-  /** Full JD text. Either pasted by the user or fetched by the agent. */
+  /** Full JD text. Either supplied by the user or fetched by the agent. */
   description: z.string(),
   sourceUrl: z.url().nullable(),
   /** 'fetched' = the agent pulled it from sourceUrl. 'pasted' = user-supplied. */

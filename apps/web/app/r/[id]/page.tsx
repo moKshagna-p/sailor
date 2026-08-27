@@ -31,6 +31,7 @@ import {
   WORKBENCH_PANES,
   type WorkbenchPane,
 } from '../../../lib/pane-layout.ts';
+import { extractPdfText } from '../../../lib/pdf-text.ts';
 import { usePreview } from '../../../lib/use-preview.ts';
 
 type JobDraft = {
@@ -413,6 +414,7 @@ export default function Workbench() {
       {jobDialogOpen && (
         <JobTargetDialog
           initial={EMPTY_JOB_DRAFT}
+          model={model}
           onClose={() => setJobDialogOpen(false)}
           onCreate={createJobTarget}
         />
@@ -701,14 +703,19 @@ function HistoryDialog({
 
 function JobTargetDialog({
   initial,
+  model,
   onClose,
   onCreate,
 }: {
   initial: JobDraft;
+  model: string;
   onClose: () => void;
   onCreate: (draft: JobDraft) => Promise<void>;
 }) {
+  const [mode, setMode] = useState<'pdf' | 'manual'>('pdf');
   const [draft, setDraft] = useState(initial);
+  const [analysing, setAnalysing] = useState(false);
+  const [importedFile, setImportedFile] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -726,6 +733,23 @@ function JobTargetDialog({
       setError(cause instanceof Error ? cause.message : 'Could not save the job target.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const importPdf = async (file: File) => {
+    setAnalysing(true);
+    setImportedFile(null);
+    setError(null);
+    try {
+      if (!model) throw new Error('Configure a model provider before importing a PDF.');
+      const description = await extractPdfText(file);
+      const fields = await api.analyseJob(description, model);
+      setDraft({ ...fields, description, sourceUrl: '' });
+      setImportedFile(file.name);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not import this PDF.');
+    } finally {
+      setAnalysing(false);
     }
   };
 
@@ -763,6 +787,60 @@ function JobTargetDialog({
         </header>
 
         <div className="space-y-4 p-5">
+          <fieldset
+            aria-label="Target entry method"
+            className="grid grid-cols-2 border border-ink-600 p-1"
+          >
+            {(['pdf', 'manual'] as const).map((entryMode) => (
+              <button
+                key={entryMode}
+                type="button"
+                aria-pressed={mode === entryMode}
+                onClick={() => {
+                  setMode(entryMode);
+                  setError(null);
+                }}
+                className={`px-3 py-2 font-mono text-[10.5px] tracking-wider uppercase transition-colors ${
+                  mode === entryMode ? 'bg-ochre text-ink-900' : 'text-ink-500 hover:text-chalk-200'
+                }`}
+              >
+                {entryMode === 'pdf' ? 'Upload PDF' : 'Enter manually'}
+              </button>
+            ))}
+          </fieldset>
+
+          {mode === 'pdf' && (
+            <label className="block border border-dashed border-ink-600 bg-ink-900/60 px-4 py-4">
+              <span className="font-mono text-[10.5px] tracking-widest text-ochre uppercase">
+                Job posting PDF
+              </span>
+              <span className="mt-1 block text-[12px] leading-relaxed text-ink-500">
+                Sailor extracts the posting, then uses the selected model to identify the company
+                and role. Text-based PDFs up to 10 MB.
+              </span>
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                disabled={analysing || !model}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void importPdf(file);
+                  event.target.value = '';
+                }}
+                className="mt-3 block w-full font-mono text-[11px] text-chalk-300 file:mr-3 file:border-0 file:bg-ink-700 file:px-3 file:py-2 file:font-mono file:text-[10.5px] file:text-chalk-200 hover:file:bg-ink-600 disabled:opacity-40"
+              />
+              <span className="mt-2 block min-h-4 font-mono text-[10.5px] text-ink-500">
+                {analysing
+                  ? 'Reading and identifying the target…'
+                  : importedFile
+                    ? `Imported ${importedFile} — review every field below.`
+                    : !model
+                      ? 'A configured model is required for automatic identification.'
+                      : 'Your PDF is processed only when you choose it.'}
+              </span>
+            </label>
+          )}
+
           <div className="grid gap-4 sm:grid-cols-2">
             <Field
               label="Company"
@@ -808,6 +886,7 @@ function JobTargetDialog({
             type="submit"
             disabled={
               submitting ||
+              analysing ||
               !draft.company.trim() ||
               !draft.role.trim() ||
               draft.description.trim().length < 20
