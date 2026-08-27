@@ -16,6 +16,11 @@ env:
   # Not a secret: CI has no real credentials and stores nothing worth reading.
   # The value only has to decode to 32 bytes, which the crypto module enforces.
   SAILOR_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  BETTER_AUTH_SECRET: ci-only-better-auth-secret-32-bytes
+  AUTH_GOOGLE_CLIENT_ID: ci-google-client
+  AUTH_GOOGLE_CLIENT_SECRET: ci-google-secret
+  AUTH_GITHUB_CLIENT_ID: ci-github-client
+  AUTH_GITHUB_CLIENT_SECRET: ci-github-secret
   DATABASE_URL: postgres://sailor:sailor@localhost:5432/sailor
   NEXT_PUBLIC_API_URL: http://localhost:3001
   WEB_ORIGIN: http://localhost:3000
