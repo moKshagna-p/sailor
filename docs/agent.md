@@ -13,6 +13,15 @@ tool progress, gap analysis, errors, and a final stop reason. The API persists
 the model messages after a successful turn so a browser refresh can rehydrate
 the ACP session and preserve context.
 
+An ordinary question remains one model phase. When a turn with a real job target
+records a gap analysis or commits a changed resume version, Sailor synchronously
+runs an independent evidence-based review of that latest version, gives the
+tailoring agent one correction phase through the same permission-gated tools,
+then reviews the resulting version for a final 0–100 score. The score is guidance,
+not an ATS prediction, and its category total is calculated in code rather than
+accepted from the model. A malformed or failed review preserves every valid
+version and reports that no reliable score was produced.
+
 The job target carries its provenance. Text pasted by a user is labelled
 `pasted`; only a posting that the agent fetched itself is `fetched`. The prompt
 uses that distinction when judging how much it can trust the description.

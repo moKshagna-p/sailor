@@ -1,6 +1,7 @@
 import { errorMessage } from '@sailor/core';
 import type { LanguageModel, ModelMessage } from 'ai';
 import { stepCountIs, streamText } from 'ai';
+import { evaluateResume, formatResumeEvaluation, reviewCorrectionContext } from './evaluation.ts';
 import type { AgentEventSink } from './events.ts';
 import { systemPrompt } from './prompt.ts';
 import type { ToolContext } from './tools/context.ts';
@@ -23,30 +24,26 @@ export type TurnResult = {
   stopReason: 'end_turn' | 'max_steps' | 'error' | 'cancelled';
 };
 
-export async function runTurn(args: {
+type PhaseResult = {
+  messages: ModelMessage[];
+  stopReason: TurnResult['stopReason'];
+};
+
+async function runPhase(args: {
   model: LanguageModel;
   ctx: ToolContext;
-  /** Prior turns, replayed from the DB. */
-  history: ModelMessage[];
-  userMessage: string;
+  messages: ModelMessage[];
+  system: string;
   emit: AgentEventSink;
   signal?: AbortSignal;
-}): Promise<TurnResult> {
-  const { model, ctx, history, userMessage, emit, signal } = args;
-
-  const version = await ctx.currentVersion();
-  const job = await ctx.jobTarget();
-
-  const messages: ModelMessage[] = [...history, { role: 'user', content: userMessage }];
+}): Promise<PhaseResult> {
+  const { model, ctx, messages, system, emit, signal } = args;
 
   const result = streamText({
     model,
-    system: systemPrompt({ version, job }),
+    system,
     messages,
     tools: buildTools(ctx),
-    // A tailoring turn legitimately takes many steps: fetch the JD, read the
-    // resume, analyse, ask, then a dozen small edits. Stopping at 10 would cut
-    // the agent off mid-job; unbounded would let a confused model spin forever.
     stopWhen: stepCountIs(MAX_STEPS),
     abortSignal: signal,
   });
@@ -88,8 +85,6 @@ export async function runTurn(args: {
         }
 
         case 'tool-error':
-          // A tool *threw*. That is our bug, not the model's — but the model can
-          // still route around it, so surface it and keep the turn alive.
           emit({
             type: 'tool_end',
             callId: part.toolCallId,
@@ -109,19 +104,12 @@ export async function runTurn(args: {
           break;
 
         default:
-          // Every other part (text-start, step boundaries, raw chunks) carries no
-          // information the client needs. Deliberately ignored.
           break;
       }
     }
   } catch (cause) {
-    if (signal?.aborted) {
-      emit({ type: 'turn_end', stopReason: 'cancelled' });
-      return { messages: [], stopReason: 'cancelled' };
-    }
-    const message = errorMessage(cause);
-    emit({ type: 'error', message });
-    emit({ type: 'turn_end', stopReason: 'error' });
+    if (signal?.aborted) return { messages: [], stopReason: 'cancelled' };
+    emit({ type: 'error', message: errorMessage(cause) });
     return { messages: [], stopReason: 'error' };
   }
 
@@ -136,13 +124,123 @@ export async function runTurn(args: {
     });
   }
 
-  emit({ type: 'turn_end', stopReason });
-
   const response = await result.response;
-  return {
-    // The user message plus everything the model produced, so the next turn
-    // replays exactly what happened.
-    messages: [{ role: 'user', content: userMessage }, ...response.messages],
-    stopReason,
+  return { messages: response.messages, stopReason };
+}
+
+const assistantText = (text: string): ModelMessage => ({ role: 'assistant', content: text });
+
+const REVIEW_UNAVAILABLE = `### Resume review unavailable
+
+The resume edits made so far are saved, but the evaluator did not produce a valid score. No
+score was guessed. Retry the tailoring request to run the review again.`;
+
+export async function runTurn(args: {
+  model: LanguageModel;
+  ctx: ToolContext;
+  /** Prior turns, replayed from the DB. */
+  history: ModelMessage[];
+  userMessage: string;
+  emit: AgentEventSink;
+  signal?: AbortSignal;
+}): Promise<TurnResult> {
+  const { model, ctx, history, userMessage, emit, signal } = args;
+
+  const version = await ctx.currentVersion();
+  const job = await ctx.jobTarget();
+  const messages: ModelMessage[] = [...history, { role: 'user', content: userMessage }];
+  const turnMessages: ModelMessage[] = [{ role: 'user', content: userMessage }];
+  let shouldReview = false;
+  const trackedCtx: ToolContext = {
+    ...ctx,
+    emitGapAnalysis(analysis) {
+      shouldReview = true;
+      ctx.emitGapAnalysis(analysis);
+    },
+    async commit(input) {
+      const outcome = await ctx.commit(input);
+      if (!outcome.unchanged) shouldReview = true;
+      return outcome;
+    },
   };
+
+  const finish = (stopReason: TurnResult['stopReason']): TurnResult => {
+    emit({ type: 'turn_end', stopReason });
+    return { messages: turnMessages, stopReason };
+  };
+
+  const reviewFailed = (cause: unknown): TurnResult => {
+    if (signal?.aborted) return finish('cancelled');
+    emit({ type: 'error', message: `Resume review failed: ${errorMessage(cause)}` });
+    emit({ type: 'text_delta', text: `\n\n${REVIEW_UNAVAILABLE}` });
+    turnMessages.push(assistantText(REVIEW_UNAVAILABLE));
+    return finish('error');
+  };
+
+  const initial = await runPhase({
+    model,
+    ctx: trackedCtx,
+    messages,
+    system: systemPrompt({ version, job }),
+    emit,
+    signal,
+  });
+  turnMessages.push(...initial.messages);
+
+  if (initial.stopReason !== 'end_turn') {
+    if (
+      initial.messages.length === 0 &&
+      (initial.stopReason === 'error' || initial.stopReason === 'cancelled')
+    ) {
+      turnMessages.length = 0;
+    }
+    return finish(initial.stopReason);
+  }
+  if (!job || !shouldReview) return finish('end_turn');
+
+  const interimVersion = await ctx.currentVersion();
+  let interimReview: Awaited<ReturnType<typeof evaluateResume>>;
+  try {
+    interimReview = await evaluateResume({ model, version: interimVersion, job, signal });
+  } catch (cause) {
+    return reviewFailed(cause);
+  }
+
+  const interimReport = formatResumeEvaluation('interim', interimVersion.id, interimReview);
+  const interimMessage = assistantText(interimReport);
+  emit({ type: 'text_delta', text: `\n\n${interimReport}` });
+  turnMessages.push(interimMessage);
+
+  const correction = await runPhase({
+    model,
+    ctx,
+    messages: [
+      ...messages,
+      ...initial.messages,
+      interimMessage,
+      {
+        role: 'user',
+        content:
+          'Apply the independent review now. Make only evidence-backed improvements, then stop.',
+      },
+    ],
+    system: `${systemPrompt({ version: interimVersion, job })}\n\n${reviewCorrectionContext(interimReview)}`,
+    emit,
+    signal,
+  });
+  turnMessages.push(...correction.messages);
+  if (correction.stopReason !== 'end_turn') return finish(correction.stopReason);
+
+  const finalVersion = await ctx.currentVersion();
+  let finalReview: Awaited<ReturnType<typeof evaluateResume>>;
+  try {
+    finalReview = await evaluateResume({ model, version: finalVersion, job, signal });
+  } catch (cause) {
+    return reviewFailed(cause);
+  }
+
+  const finalReport = formatResumeEvaluation('final', finalVersion.id, finalReview);
+  emit({ type: 'text_delta', text: `\n\n${finalReport}` });
+  turnMessages.push(assistantText(finalReport));
+  return finish('end_turn');
 }
