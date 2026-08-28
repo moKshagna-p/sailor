@@ -1,4 +1,10 @@
 export { unifiedDiff } from './diff.ts';
+export {
+  evaluateResume,
+  formatResumeEvaluation,
+  reviewCorrectionContext,
+  scoreResumeEvaluation,
+} from './evaluation.ts';
 export type { AgentEvent, AgentEventSink } from './events.ts';
 export { toChatHistory } from './history.ts';
 export { extractJobTargetFields } from './job-target.ts';

@@ -1,3 +1,4 @@
+export * from './evaluation.ts';
 export * from './job.ts';
 export * from './latex.ts';
 export * from './provider.ts';
