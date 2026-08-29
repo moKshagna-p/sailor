@@ -1,9 +1,22 @@
 import { expect, test } from 'bun:test';
 import {
+  classifyResumeUpload,
   escapeLatex,
   latexFilesToResumeTree,
   layoutToResumeTree,
 } from '../apps/web/lib/resume-import.ts';
+
+test('resume uploads distinguish documents from multi-file LaTeX projects', () => {
+  expect(classifyResumeUpload([new File(['x'], 'resume.pdf')])).toBe('pdf');
+  expect(classifyResumeUpload([new File(['x'], 'resume.docx')])).toBe('docx');
+  expect(classifyResumeUpload([new File(['x'], 'main.tex')])).toBe('latex');
+  expect(classifyResumeUpload([new File(['x'], 'main.tex'), new File(['x'], 'resume.cls')])).toBe(
+    'latex',
+  );
+  expect(() =>
+    classifyResumeUpload([new File(['x'], 'resume.pdf'), new File(['x'], 'extra.tex')]),
+  ).toThrow('one PDF or DOCX');
+});
 
 test('positioned LaTeX preserves and escapes source text while carrying page art', () => {
   const tree = layoutToResumeTree([

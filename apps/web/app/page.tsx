@@ -5,14 +5,25 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { AccountMenu } from '../components/account-menu.tsx';
+import { PasteLatexDialog } from '../components/paste-latex-dialog.tsx';
 import { api, type ResumeSummary } from '../lib/api.ts';
+import { docxToPositionedPages } from '../lib/docx-resume.ts';
+import { pdfToPositionedPages } from '../lib/pdf-resume.ts';
+import {
+  classifyResumeUpload,
+  latexFilesToResumeTree,
+  layoutToResumeTree,
+} from '../lib/resume-import.ts';
 
 export default function Library() {
   const router = useRouter();
   const [resumes, setResumes] = useState<ResumeSummary[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pasteOpen, setPasteOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pasteButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     api
@@ -21,41 +32,54 @@ export default function Library() {
       .catch((e: Error) => setError(e.message));
   }, []);
 
-  async function create(tree?: ResumeTree, title = 'Untitled resume') {
+  async function create(tree?: ResumeTree, title = 'Untitled resume'): Promise<boolean> {
     setBusy(true);
+    setStatus('Compiling…');
     setError(null);
     try {
       const { resumeId } = await api.createResume(title, tree);
       router.push(`/r/${resumeId}`);
+      return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not create the resume');
+      return false;
+    } finally {
       setBusy(false);
+      setStatus(null);
     }
   }
 
   async function onUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     if (files.length === 0) return;
-
-    const parts = await Promise.all(
-      files.map(async (f) => ({ path: f.name, content: await f.text() })),
-    );
-
-    // The entry is the .tex that actually has a \documentclass. Picking the first
-    // .tex would break every template that ships a preamble in a separate file.
-    const entry =
-      parts.find((f) => f.path.endsWith('.tex') && f.content.includes('\\documentclass'))?.path ??
-      parts.find((f) => f.path.endsWith('.tex'))?.path;
-
-    if (!entry) {
-      setError(
-        'None of those files contain a \\documentclass — I cannot tell which one to compile.',
+    setBusy(true);
+    setError(null);
+    try {
+      const kind = classifyResumeUpload(files);
+      const file = files[0];
+      if (!file) return;
+      setStatus(
+        kind === 'pdf'
+          ? 'Reading PDF…'
+          : kind === 'docx'
+            ? 'Reading Word document…'
+            : 'Reading LaTeX…',
       );
-      return;
+      const tree =
+        kind === 'pdf'
+          ? layoutToResumeTree(await pdfToPositionedPages(file))
+          : kind === 'docx'
+            ? layoutToResumeTree(await docxToPositionedPages(file))
+            : await latexFilesToResumeTree(files);
+      const title = file.name.replace(/\.[^.]+$/, '') || 'Untitled resume';
+      await create(tree, title);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not import the resume');
+      setBusy(false);
+      setStatus(null);
+    } finally {
+      event.target.value = '';
     }
-
-    const title = entry.replace(/\.tex$/, '');
-    await create({ entry, files: parts }, title);
   }
 
   return (
@@ -80,38 +104,65 @@ export default function Library() {
       </header>
 
       <section className="rise mt-14" style={{ animationDelay: '80ms' }}>
-        <div className="flex gap-3">
+        <div className="grid gap-3 sm:grid-cols-3">
           <button
             type="button"
             onClick={() => create()}
             disabled={busy}
-            className="border border-ochre bg-ochre px-5 py-2.5 text-sm font-medium text-ink-900 transition-opacity hover:opacity-90 disabled:opacity-40"
+            className="group min-h-32 border border-ochre bg-ochre p-5 text-left text-ink-950 transition-transform hover:-translate-y-0.5 disabled:opacity-40"
           >
-            Start from template
+            <span className="font-mono text-[10px] tracking-widest uppercase opacity-60">01</span>
+            <span className="mt-7 block text-base font-medium">Start from template</span>
+            <span className="mt-1 block text-xs opacity-70">A clean, editable foundation</span>
+          </button>
+          <button
+            ref={pasteButtonRef}
+            type="button"
+            onClick={() => setPasteOpen(true)}
+            disabled={busy}
+            className="group min-h-32 border border-ink-600 p-5 text-left text-chalk-200 transition-all hover:-translate-y-0.5 hover:border-ochre disabled:opacity-40"
+          >
+            <span className="font-mono text-[10px] tracking-widest text-ink-500 uppercase">02</span>
+            <span className="mt-7 block text-base font-medium group-hover:text-ochre">
+              Paste LaTeX
+            </span>
+            <span className="mt-1 block text-xs text-ink-500">Compile source directly</span>
           </button>
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={busy}
-            className="border border-ink-600 px-5 py-2.5 text-sm text-chalk-200 transition-colors hover:border-ink-500 hover:text-chalk-100 disabled:opacity-40"
+            className="group min-h-32 border border-ink-600 p-5 text-left text-chalk-200 transition-all hover:-translate-y-0.5 hover:border-ochre disabled:opacity-40"
           >
-            Upload .tex
+            <span className="font-mono text-[10px] tracking-widest text-ink-500 uppercase">03</span>
+            <span className="mt-7 block text-base font-medium group-hover:text-ochre">
+              Upload resume
+            </span>
+            <span className="mt-1 block text-xs text-ink-500">PDF, DOCX, or LaTeX</span>
           </button>
           <input
             ref={fileRef}
             type="file"
-            accept=".tex,.cls,.sty,.bib"
+            accept=".pdf,.docx,.tex,.cls,.sty,.bib,.png,.jpg,.jpeg"
             multiple
             hidden
             onChange={onUpload}
           />
         </div>
         <p className="mt-3 font-mono text-xs text-ink-500">
-          Upload every file your résumé needs — the .tex, plus any .cls or .sty it depends on.
+          PDF and Word imports preserve the original layout as editable, positioned LaTeX.
         </p>
 
+        {status && (
+          <p className="mt-4 font-mono text-xs text-ochre" aria-live="polite">
+            {status}
+          </p>
+        )}
+
         {error && (
-          <p className="mt-4 border-l-2 border-strike py-1 pl-3 text-sm text-strike">{error}</p>
+          <p className="mt-4 border-l-2 border-strike py-1 pl-3 text-sm text-strike" role="alert">
+            {error}
+          </p>
         )}
       </section>
 
@@ -149,6 +200,23 @@ export default function Library() {
           </ul>
         </div>
       </section>
+
+      {pasteOpen && (
+        <PasteLatexDialog
+          busy={busy}
+          error={error}
+          onCancel={() => {
+            setPasteOpen(false);
+            requestAnimationFrame(() => pasteButtonRef.current?.focus());
+          }}
+          onSubmit={(source) =>
+            create(
+              { entry: 'main.tex', files: [{ path: 'main.tex', content: source }] },
+              'Pasted resume',
+            )
+          }
+        />
+      )}
     </main>
   );
 }

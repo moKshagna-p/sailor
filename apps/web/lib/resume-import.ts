@@ -22,6 +22,28 @@ export type PositionedPage = {
   runs: PositionedRun[];
 };
 
+export type ResumeUploadKind = 'pdf' | 'docx' | 'latex';
+
+export function classifyResumeUpload(files: File[]): ResumeUploadKind {
+  if (files.length === 0) throw new Error('Choose a resume file.');
+  const documentKind = (file: File): Exclude<ResumeUploadKind, 'latex'> | null => {
+    const name = file.name.toLowerCase();
+    if (file.type === 'application/pdf' || name.endsWith('.pdf')) return 'pdf';
+    if (
+      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      name.endsWith('.docx')
+    ) {
+      return 'docx';
+    }
+    return null;
+  };
+  const documents = files.map(documentKind).filter((kind) => kind !== null);
+  if (documents.length > 0 && files.length !== 1) {
+    throw new Error('Choose one PDF or DOCX at a time.');
+  }
+  return documents[0] ?? 'latex';
+}
+
 const LATEX_ESCAPES: Readonly<Record<string, string>> = {
   '\\': String.raw`\textbackslash{}`,
   '&': String.raw`\&`,
