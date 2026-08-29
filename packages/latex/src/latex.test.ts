@@ -31,6 +31,28 @@ test('a resume using a standard LaTeX package compiles', async () => {
   expect(new TextDecoder().decode(result.pdf.slice(0, 5))).toBe('%PDF-');
 }, 60_000);
 
+test('a base64 layout asset is decoded before Tectonic reads it', async () => {
+  const result = await compileWithTectonic({
+    entry: 'main.tex',
+    files: [
+      {
+        path: 'main.tex',
+        content:
+          '\\documentclass{article}\\usepackage{graphicx}\\begin{document}\\includegraphics{dot.png}\\end{document}',
+      },
+      {
+        path: 'dot.png',
+        content:
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        encoding: 'base64',
+      },
+    ],
+  });
+
+  if (!result.ok) throw new Error(`Expected success, got:\n${result.log}`);
+  expect(new TextDecoder().decode(result.pdf.slice(0, 5))).toBe('%PDF-');
+}, 60_000);
+
 test('a broken document fails with a diagnostic the agent can act on', async () => {
   const result = await compileWithTectonic({
     entry: 'main.tex',

@@ -21,7 +21,7 @@ type Harness = {
   currentContent(): string;
 };
 
-function harness(): Harness {
+function harness(files?: ResumeTree['files']): Harness {
   let content = BODY;
   let approve = true;
   const commits: Harness['commits'] = [];
@@ -36,7 +36,7 @@ function harness(): Harness {
         id: 'v1',
         resumeId: 'r1',
         contentHash: 'hash',
-        tree: { entry: 'main.tex', files: [{ path: 'main.tex', content }] },
+        tree: { entry: 'main.tex', files: files ?? [{ path: 'main.tex', content }] },
         summary: 'test',
         createdBy: 'user',
         parentId: null,
@@ -159,6 +159,26 @@ test('only edit_resume is gated', () => {
   expect(isGated('read_resume')).toBe(false);
   expect(isGated('web_search')).toBe(false);
   expect(isGated('compile_resume')).toBe(false);
+});
+
+test('binary resume assets are never exposed or edited as source text', async () => {
+  const h = harness([
+    { path: 'main.tex', content: BODY },
+    { path: 'page.png', content: 'aGVsbG8=', encoding: 'base64' },
+  ]);
+  const tools = buildTools(h.ctx);
+
+  const read = await tools.read_resume.execute?.({ path: 'page.png' }, OPTS);
+  const edit = await tools.edit_resume.execute?.(
+    { path: 'page.png', oldText: 'aGVs', newText: 'nope', summary: 'Change binary' },
+    OPTS,
+  );
+
+  expect(read).toMatchObject({ ok: false });
+  expect(edit).toMatchObject({ ok: false });
+  expect((read as { error: string }).error).toContain('binary asset');
+  expect(h.permissionPrompts).toHaveLength(0);
+  expect(h.commits).toHaveLength(0);
 });
 
 test('fetch_url refuses private addresses (SSRF)', () => {

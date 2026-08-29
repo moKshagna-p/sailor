@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test';
-import type { ResumeTree } from '@sailor/core';
-import { hashTree } from '@sailor/core';
+import { hashTree, ResumeTree } from '@sailor/core';
 import { decryptSecret, encryptSecret } from './crypto.ts';
 import {
   commitVersion,
@@ -51,6 +50,28 @@ test('hashing is order-independent', async () => {
     ],
   };
   expect(await hashTree(a)).toBe(await hashTree(b));
+});
+
+test('binary assets are content-addressed and only accept base64 encoding', async () => {
+  const plain: ResumeTree = {
+    entry: 'main.tex',
+    files: [{ path: 'main.tex', content: 'x' }],
+  };
+  const binary: ResumeTree = {
+    entry: 'main.tex',
+    files: [
+      { path: 'main.tex', content: 'x' },
+      { path: 'page.png', content: 'aGVsbG8=', encoding: 'base64' },
+    ],
+  };
+
+  expect(await hashTree(plain)).not.toBe(await hashTree(binary));
+  expect(() =>
+    ResumeTree.parse({
+      entry: 'main.tex',
+      files: [{ path: 'main.tex', content: 'x', encoding: 'hex' }],
+    }),
+  ).toThrow();
 });
 
 test('versions are append-only, deduped, and rollback is non-destructive', async () => {

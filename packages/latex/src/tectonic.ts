@@ -62,7 +62,10 @@ export async function compileWithTectonic(
       if (!target.startsWith(`${dir}/`)) {
         throw new Error(`Refusing to write outside the scratch dir: ${file.path}`);
       }
-      await Bun.write(Bun.file(target), file.content);
+      await Bun.write(
+        Bun.file(target),
+        file.encoding === 'base64' ? Buffer.from(file.content, 'base64') : file.content,
+      );
     }
 
     const entry = getEntryFile(tree);

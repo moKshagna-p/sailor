@@ -27,6 +27,10 @@ export function resumeTools(ctx: ToolContext) {
           );
         }
 
+        if (file.encoding === 'base64') {
+          return err(`${target} is a binary asset.`, 'Edit the LaTeX source instead.');
+        }
+
         return ok({
           path: file.path,
           content: file.content,
@@ -60,6 +64,10 @@ export function resumeTools(ctx: ToolContext) {
             `No file at "${target}"`,
             `Files in this resume: ${version.tree.files.map((f) => f.path).join(', ')}`,
           );
+        }
+
+        if (file.encoding === 'base64') {
+          return err(`${target} is a binary asset.`, 'Edit the LaTeX source instead.');
         }
 
         // Exactly-once matching. A replace-all here would silently rewrite every

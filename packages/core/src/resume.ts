@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export const MAX_RESUME_TREE_CHARS = 25 * 1024 * 1024;
+
 /**
  * A resume is a set of LaTeX files (main.tex plus any .cls/.sty/assets the user
  * uploaded). We keep the whole tree because real templates — Awesome-CV,
@@ -12,15 +14,23 @@ export const ResumeFile = z.object({
     .max(200)
     // Traversal guard: these paths are written to a scratch dir before compiling.
     .refine((p) => !p.includes('..') && !p.startsWith('/'), 'path must be relative and not escape'),
-  content: z.string(),
+  content: z.string().max(15 * 1024 * 1024),
+  /** Binary assets are base64 in JSON and decoded only in the compiler scratch dir. */
+  encoding: z.literal('base64').optional(),
 });
 export type ResumeFile = z.infer<typeof ResumeFile>;
 
-export const ResumeTree = z.object({
-  /** Which file is the compile root. Must exist in `files`. */
-  entry: z.string().min(1),
-  files: z.array(ResumeFile).min(1).max(50),
-});
+export const ResumeTree = z
+  .object({
+    /** Which file is the compile root. Must exist in `files`. */
+    entry: z.string().min(1),
+    files: z.array(ResumeFile).min(1).max(50),
+  })
+  .refine(
+    (tree) =>
+      tree.files.reduce((size, file) => size + file.content.length, 0) <= MAX_RESUME_TREE_CHARS,
+    'resume file tree is too large',
+  );
 export type ResumeTree = z.infer<typeof ResumeTree>;
 
 export function getFile(tree: ResumeTree, path: string): ResumeFile | undefined {
