@@ -27,7 +27,7 @@ import { z } from 'zod';
  * instant), cancellation of superseded compiles, and never blanking the sheet.
  */
 
-const API = (self as unknown as { __API__?: string }).__API__ ?? 'http://localhost:3001';
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 const DEBOUNCE_MS = 400;
 /** Bounded so a long session cannot grow the worker heap without limit. */
