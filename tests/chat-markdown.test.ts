@@ -27,3 +27,46 @@ test('agent Markdown renders as semantic headings, lists, emphasis, and code', (
   expect(html).toContain('<code>PyTest</code>');
   expect(html).not.toContain('### Key summary');
 });
+
+test('agent-owned chat surfaces never render emoji', () => {
+  const html = renderToStaticMarkup(
+    createElement(Chat, {
+      items: [
+        { kind: 'agent', text: 'Ready 🚀. Score 90/100.' },
+        { kind: 'tool', name: 'web_search', ok: true, detail: 'Found it 🔍' },
+        {
+          kind: 'gap',
+          analysis: {
+            coverage: 90,
+            notes: 'Strong match ✅',
+            matches: [
+              {
+                requirement: 'Backend systems 🧰',
+                evidence: [],
+                status: 'strong',
+                askUser: 'What scale? 📈',
+              },
+            ],
+          },
+        },
+        { kind: 'committed', summary: 'Updated bullet ✨' },
+        { kind: 'error', message: 'Review failed ⚠️' },
+      ],
+      busy: false,
+      connected: true,
+      permission: {
+        title: 'Apply edit 🛠️',
+        diff: '',
+        respond: () => {},
+      },
+      elicit: { question: 'How many users? 👥', respond: () => {} },
+      onSend: () => {},
+      onCancel: () => {},
+    }),
+  );
+
+  for (const emoji of ['🚀', '🔍', '✅', '🧰', '📈', '✨', '⚠️', '🛠️', '👥']) {
+    expect(html).not.toContain(emoji);
+  }
+  expect(html).toContain('Score 90/100.');
+});

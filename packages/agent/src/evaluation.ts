@@ -28,6 +28,8 @@ Score these categories with evidence:
 
 Ignore name, gender, demographics, school prestige, grades, and location. Never invent or recommend inventing a metric, technology, date, title, employer, or other candidate fact. Phrase a potentially useful missing fact as a question for the user. Return one to five strengths and one to three actionable improvements.
 
+Never use emojis. Use plain text only.
+
 This score is guidance for improving the resume, not an ATS score or hiring prediction.`;
 
 const cap = (value: number, max: number): number => Math.min(Math.max(value, 0), max);

@@ -23,6 +23,10 @@ const TOOL_LABELS: Record<string, string> = {
   record_gap_analysis: 'Analysing the gap',
 };
 
+const EMOJI =
+  /(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{Emoji_Modifier}|\uFE0F|\u20E3)/gu;
+const withoutEmoji = (text: string): string => text.replace(EMOJI, '');
+
 /**
  * Drafting a question about a selection is a command, not app state: the same
  * selection must be able to refill and focus the composer more than once.
@@ -123,7 +127,7 @@ export function Chat({
           className="border-t border-ochre/40 bg-ochre/[0.06] px-4 py-4"
         >
           <p className="whitespace-pre-line text-[13px] leading-relaxed text-chalk-100">
-            {elicit.question}
+            {withoutEmoji(elicit.question)}
           </p>
           <div className="mt-3 flex gap-2">
             <input
@@ -202,7 +206,7 @@ function PermissionPrompt({ ask }: { ask: PermissionAsk }) {
       <p className="font-mono text-[11px] tracking-widest text-ochre uppercase">
         Approve this edit
       </p>
-      <p className="mt-1.5 text-[13px] text-chalk-100">{ask.title}</p>
+      <p className="mt-1.5 text-[13px] text-chalk-100">{withoutEmoji(ask.title)}</p>
 
       {ask.diff && (
         <div className="mt-3">
@@ -247,7 +251,7 @@ function ChatRow({ item }: { item: ChatItem }) {
   if (item.kind === 'agent') {
     return (
       <div className="space-y-2 text-[13px] leading-relaxed text-chalk-300 [&_a]:text-ochre [&_a]:underline [&_a]:underline-offset-2 [&_blockquote]:border-l-2 [&_blockquote]:border-ink-600 [&_blockquote]:pl-3 [&_code]:bg-ink-800 [&_code]:px-1 [&_code]:font-mono [&_code]:text-[12px] [&_code]:text-ochre [&_h1]:font-display [&_h1]:text-[18px] [&_h1]:text-chalk-100 [&_h2]:font-display [&_h2]:text-[16px] [&_h2]:text-chalk-100 [&_h3]:font-display [&_h3]:text-[15px] [&_h3]:text-chalk-100 [&_li]:pl-1 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_pre]:overflow-x-auto [&_pre]:border [&_pre]:border-ink-700 [&_pre]:bg-ink-850 [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_strong]:font-semibold [&_strong]:text-chalk-100 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
-        <Markdown skipHtml>{item.text}</Markdown>
+        <Markdown skipHtml>{withoutEmoji(item.text)}</Markdown>
       </div>
     );
   }
@@ -260,7 +264,7 @@ function ChatRow({ item }: { item: ChatItem }) {
           {item.ok === null ? '○' : item.ok ? '●' : '✕'}
         </span>
         {label}
-        {item.detail && <span className="truncate text-ink-600">{item.detail}</span>}
+        {item.detail && <span className="truncate text-ink-600">{withoutEmoji(item.detail)}</span>}
       </p>
     );
   }
@@ -268,7 +272,7 @@ function ChatRow({ item }: { item: ChatItem }) {
   if (item.kind === 'committed') {
     return (
       <p className="border-l-2 border-added py-0.5 pl-3 font-mono text-[11px] text-added">
-        saved · {item.summary}
+        saved · {withoutEmoji(item.summary)}
       </p>
     );
   }
@@ -276,7 +280,7 @@ function ChatRow({ item }: { item: ChatItem }) {
   if (item.kind === 'error') {
     return (
       <p className="border-l-2 border-strike py-0.5 pl-3 text-[12.5px] text-strike">
-        {item.message}
+        {withoutEmoji(item.message)}
       </p>
     );
   }
@@ -306,9 +310,11 @@ function GapCard({ analysis }: { analysis: GapAnalysis }) {
             <span className={`font-mono text-[10px] uppercase ${colour[match.status]}`}>
               {match.status}
             </span>{' '}
-            <span className="text-chalk-300">{match.requirement}</span>
+            <span className="text-chalk-300">{withoutEmoji(match.requirement)}</span>
             {match.askUser && (
-              <p className="mt-0.5 pl-2 text-[11.5px] text-ochre italic">→ {match.askUser}</p>
+              <p className="mt-0.5 pl-2 text-[11.5px] text-ochre italic">
+                → {withoutEmoji(match.askUser)}
+              </p>
             )}
           </li>
         ))}
@@ -316,7 +322,7 @@ function GapCard({ analysis }: { analysis: GapAnalysis }) {
 
       {analysis.notes && (
         <p className="mt-3 border-t border-ink-700 pt-2 text-[12.5px] leading-relaxed text-chalk-400">
-          {analysis.notes}
+          {withoutEmoji(analysis.notes)}
         </p>
       )}
     </div>
