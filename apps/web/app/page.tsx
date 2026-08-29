@@ -7,13 +7,9 @@ import { useEffect, useRef, useState } from 'react';
 import { AccountMenu } from '../components/account-menu.tsx';
 import { PasteLatexDialog } from '../components/paste-latex-dialog.tsx';
 import { api, type ResumeSummary } from '../lib/api.ts';
-import { docxToPositionedPages } from '../lib/docx-resume.ts';
-import { pdfToPositionedPages } from '../lib/pdf-resume.ts';
-import {
-  classifyResumeUpload,
-  latexFilesToResumeTree,
-  layoutToResumeTree,
-} from '../lib/resume-import.ts';
+import { latexFolderToResumeTree } from '../lib/resume-import.ts';
+
+const DIRECTORY_PICKER_PROPS = { webkitdirectory: '' };
 
 export default function Library() {
   const router = useRouter();
@@ -55,23 +51,11 @@ export default function Library() {
     setBusy(true);
     setError(null);
     try {
-      const kind = classifyResumeUpload(files);
       const file = files[0];
       if (!file) return;
-      setStatus(
-        kind === 'pdf'
-          ? 'Reading PDF…'
-          : kind === 'docx'
-            ? 'Reading Word document…'
-            : 'Reading LaTeX…',
-      );
-      const tree =
-        kind === 'pdf'
-          ? layoutToResumeTree(await pdfToPositionedPages(file))
-          : kind === 'docx'
-            ? layoutToResumeTree(await docxToPositionedPages(file))
-            : await latexFilesToResumeTree(files);
-      const title = file.name.replace(/\.[^.]+$/, '') || 'Untitled resume';
+      setStatus('Reading LaTeX folder…');
+      const tree = await latexFolderToResumeTree(files);
+      const title = file.webkitRelativePath.split('/')[0] || 'Untitled resume';
       await create(tree, title);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not import the resume');
@@ -136,21 +120,21 @@ export default function Library() {
           >
             <span className="font-mono text-[10px] tracking-widest text-ink-500 uppercase">03</span>
             <span className="mt-7 block text-base font-medium group-hover:text-ochre">
-              Upload resume
+              Upload LaTeX folder
             </span>
-            <span className="mt-1 block text-xs text-ink-500">PDF, DOCX, or LaTeX</span>
+            <span className="mt-1 block text-xs text-ink-500">Source, styles, and assets</span>
           </button>
           <input
             ref={fileRef}
             type="file"
-            accept=".pdf,.docx,.tex,.cls,.sty,.bib,.png,.jpg,.jpeg"
+            {...DIRECTORY_PICKER_PROPS}
             multiple
             hidden
             onChange={onUpload}
           />
         </div>
         <p className="mt-3 font-mono text-xs text-ink-500">
-          PDF and Word imports preserve the original layout as editable, positioned LaTeX.
+          Choose the complete project folder so image, style, and bibliography paths still resolve.
         </p>
 
         {status && (

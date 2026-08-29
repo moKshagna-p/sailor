@@ -1,88 +1,93 @@
 import { expect, test } from 'bun:test';
-import {
-  classifyResumeUpload,
-  escapeLatex,
-  latexFilesToResumeTree,
-  layoutToResumeTree,
-} from '../apps/web/lib/resume-import.ts';
+import { latexFolderToResumeTree } from '../apps/web/lib/resume-import.ts';
 
-test('resume uploads distinguish documents from multi-file LaTeX projects', () => {
-  expect(classifyResumeUpload([new File(['x'], 'resume.pdf')])).toBe('pdf');
-  expect(classifyResumeUpload([new File(['x'], 'resume.docx')])).toBe('docx');
-  expect(classifyResumeUpload([new File(['x'], 'main.tex')])).toBe('latex');
-  expect(classifyResumeUpload([new File(['x'], 'main.tex'), new File(['x'], 'resume.cls')])).toBe(
-    'latex',
-  );
-  expect(() =>
-    classifyResumeUpload([new File(['x'], 'resume.pdf'), new File(['x'], 'extra.tex')]),
-  ).toThrow('one PDF or DOCX');
-});
+function pickedFile(content: BlobPart[], name: string, relativePath: string, type?: string): File {
+  const file = new File(content, name, type ? { type } : undefined);
+  Object.defineProperty(file, 'webkitRelativePath', { value: relativePath });
+  return file;
+}
 
-test('positioned LaTeX preserves and escapes source text while carrying page art', () => {
-  const tree = layoutToResumeTree([
-    {
-      width: 612,
-      height: 792,
-      backgroundPng: 'iVBORw0KGgo=',
-      runs: [
-        {
-          text: String.raw`R&D_50% #1 {Go} \ $5 ~ ^`,
-          x: 36,
-          y: 42,
-          width: 220,
-          height: 14,
-          fontSize: 11,
-          fontFamily: 'sans',
-          bold: true,
-          italic: false,
-          color: '112233',
-        },
+test('folder import preserves nested source paths and binary assets', async () => {
+  const tree = await latexFolderToResumeTree([
+    pickedFile(
+      [
+        String.raw`\documentclass{article}\input{sections/body}\includegraphics{images/leetcode.png}`,
       ],
-    },
+      'main.tex',
+      'resume/main.tex',
+    ),
+    pickedFile(['body'], 'body.tex', 'resume/sections/body.tex'),
+    pickedFile([new Uint8Array([1, 2, 3])], 'leetcode.png', 'resume/images/leetcode.png'),
   ]);
 
   expect(tree.entry).toBe('main.tex');
-  expect(tree.files[1]).toEqual({
-    path: 'page-1.png',
-    content: 'iVBORw0KGgo=',
+  expect(tree.files).toContainEqual({ path: 'sections/body.tex', content: 'body' });
+  expect(tree.files).toContainEqual({
+    path: 'images/leetcode.png',
+    content: 'AQID',
     encoding: 'base64',
   });
-  expect(tree.files[0]?.content).toContain(
-    String.raw`R\&D\_50\% \#1 \{Go\} \textbackslash{} \$5 \textasciitilde{} \textasciicircum{}`,
-  );
-  expect(tree.files[0]?.content).toContain(String.raw`\begin{textblock*}{220pt}(36pt,42pt)`);
-  expect(tree.files[0]?.content).toContain(
-    String.raw`\fontsize{11pt}{14pt}\selectfont\sffamily\bfseries\color[HTML]{112233}`,
-  );
 });
 
-test('LaTeX escaping covers every syntax character without changing words', () => {
-  expect(escapeLatex(String.raw`a&b_c%d#e$f{g}h\i~j^k`)).toBe(
-    String.raw`a\&b\_c\%d\#e\$f\{g\}h\textbackslash{}i\textasciitilde{}j\textasciicircum{}k`,
-  );
+test('folder import prefers root main.tex over another document', async () => {
+  const tree = await latexFolderToResumeTree([
+    pickedFile([String.raw`\documentclass{article}`], 'letter.tex', 'resume/letter.tex'),
+    pickedFile([String.raw`\documentclass{article}`], 'main.tex', 'resume/main.tex'),
+  ]);
+
+  expect(tree.entry).toBe('main.tex');
 });
 
-test('positioned imports require a page and selectable text', () => {
-  expect(() => layoutToResumeTree([])).toThrow('no pages');
-  expect(() =>
-    layoutToResumeTree([{ width: 612, height: 792, backgroundPng: 'png', runs: [] }]),
-  ).toThrow('no selectable text');
-});
-
-test('LaTeX uploads choose the document root and preserve binary assets', async () => {
-  const tree = await latexFilesToResumeTree([
-    new File(['helper'], 'preamble.tex', { type: 'text/plain' }),
-    new File([String.raw`\documentclass{article}\begin{document}Hi\end{document}`], 'cv.tex'),
-    new File([new Uint8Array([1, 2, 3])], 'photo.png', { type: 'image/png' }),
+test('folder import uses the sole document root when it is not main.tex', async () => {
+  const tree = await latexFolderToResumeTree([
+    pickedFile([String.raw`\documentclass{article}`], 'cv.tex', 'resume/cv.tex'),
+    pickedFile(['fragment'], 'body.tex', 'resume/body.tex'),
   ]);
 
   expect(tree.entry).toBe('cv.tex');
-  expect(tree.files).toContainEqual({ path: 'photo.png', content: 'AQID', encoding: 'base64' });
-  expect(tree.files.find((file) => file.path === 'cv.tex')?.encoding).toBeUndefined();
 });
 
-test('LaTeX uploads reject source without a document class', async () => {
+test('folder import rejects a project without a document root', async () => {
   await expect(
-    latexFilesToResumeTree([new File(['just a fragment'], 'fragment.tex')]),
-  ).rejects.toThrow('contain a \\documentclass');
+    latexFolderToResumeTree([
+      pickedFile(['just a fragment'], 'fragment.tex', 'resume/fragment.tex'),
+    ]),
+  ).rejects.toThrow('No .tex file');
+});
+
+test('folder import lists ambiguous document roots', async () => {
+  await expect(
+    latexFolderToResumeTree([
+      pickedFile([String.raw`\documentclass{article}`], 'cv.tex', 'resume/cv.tex'),
+      pickedFile([String.raw`\documentclass{article}`], 'letter.tex', 'resume/letter.tex'),
+    ]),
+  ).rejects.toThrow('cv.tex, letter.tex');
+});
+
+test('folder import rejects duplicate and unsafe project paths', async () => {
+  await expect(
+    latexFolderToResumeTree([
+      pickedFile([String.raw`\documentclass{article}`], 'main.tex', 'resume/main.tex'),
+      pickedFile(['duplicate'], 'main.tex', 'resume/main.tex'),
+    ]),
+  ).rejects.toThrow('duplicate project paths');
+
+  await expect(
+    latexFolderToResumeTree([
+      pickedFile([String.raw`\documentclass{article}`], 'main.tex', 'resume/../main.tex'),
+    ]),
+  ).rejects.toThrow('Unsafe project path: resume/../main.tex');
+});
+
+test('folder import requires one selected directory', async () => {
+  await expect(
+    latexFolderToResumeTree([
+      pickedFile([String.raw`\documentclass{article}`], 'main.tex', 'one/main.tex'),
+      pickedFile(['body'], 'body.tex', 'two/body.tex'),
+    ]),
+  ).rejects.toThrow('one folder');
+
+  await expect(latexFolderToResumeTree([new File(['x'], 'main.tex')])).rejects.toThrow(
+    'folder, not individual files',
+  );
 });
