@@ -1,187 +1,135 @@
-# Resume Document Import Design
+# LaTeX Resume Folder Import Design
 
 ## Goal
 
-Let a user create an editable Sailor resume in one of three ways:
+Let a user create a Sailor resume from either pasted LaTeX or a complete LaTeX
+project folder. A folder import preserves the source tree and its local assets so
+the authoritative server compiler sees the same relative paths that the project
+expects.
 
-1. start from Sailor's built-in template;
-2. paste or upload LaTeX source; or
-3. upload a PDF or DOCX and convert it to compiling LaTeX while preserving its
-   visible layout as closely as practical.
-
-The import must never invent, rewrite, or omit resume text. A conversion that
-cannot produce compiling LaTeX is rejected and creates no resume.
-
-## Current behavior and root cause
-
-The home page currently offers the starter template and a multi-file LaTeX
-upload. It has no paste-LaTeX control, despite the intended product flow. The
-authoritative Tectonic path and starter template compile successfully; the
-missing and fragile behavior is at the home-page import boundary, not in the
-compiler itself.
-
-The existing LaTeX upload also reads every selected file as UTF-8 text. That is
-correct for `.tex`, `.cls`, `.sty`, and `.bib`, but cannot carry PDF/DOCX input
-or images used by an imported layout.
+PDF and DOCX resume reconstruction is removed. Those formats are rendered
+outputs, not reliable editable sources, and converting them back to positioned
+LaTeX produces fragile resumes.
 
 ## Product behavior
 
-The home page presents three equal creation choices:
+The home page offers three creation paths:
 
-- **Start from template** creates the existing starter resume.
-- **Paste LaTeX** opens a compact dialog with a source textarea. Sailor requires
-  a `\documentclass`, submits the source as `main.tex`, and displays the
-  server's compile diagnostics without creating a broken resume.
-- **Upload resume** accepts one `.pdf` or `.docx`, or a set of LaTeX source and
-  asset files. The button reports extraction, conversion, and compile progress.
+1. **Start from template** creates the existing starter resume.
+2. **Paste LaTeX** submits one `main.tex` file through the existing compile-first
+   creation flow.
+3. **Upload LaTeX folder** opens the browser's native directory picker and
+   imports the selected project with its relative directory structure intact.
 
-PDF and DOCX imports create editable, positioned LaTeX. The first rendered PDF
-should look close to the original; subsequent edits remain normal immutable
-Sailor versions. The UI labels the conversion as best-effort and tells the user
-to review it before tailoring.
+The folder picker replaces the PDF/DOCX/loose-file upload. Its copy explains
+that the folder must contain the resume's `.tex`, `.cls`, `.sty`, bibliography,
+images, fonts, and other local compile inputs.
 
-Image-only or password-protected PDFs are rejected with actionable errors.
-Malformed, encrypted, or unsupported DOCX files are rejected. A failed import
-resets the file input so the same file can be selected again.
+## Entry-file selection
 
-## Conversion architecture
+Sailor selects the compile entry without guessing:
 
-Conversion runs in the browser. This keeps untrusted office documents away from
-the API process, reuses the installed PDF.js runtime, and avoids adding Pandoc or
-LibreOffice as production server dependencies.
+1. use `main.tex` when it contains `\documentclass`;
+2. otherwise use the sole `.tex` file containing `\documentclass`;
+3. if none exists, reject the import with an actionable error; and
+4. if several candidates exist, reject the import and list their relative paths.
 
-Both formats produce the same small intermediate layout model:
+An entry-file chooser is deliberately omitted. Real resume projects normally
+have one root document, and an explicit error is smaller and safer than adding
+picker state for an ambiguous project.
 
-```ts
-type PositionedRun = {
-  text: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  fontSize: number;
-  fontFamily: 'serif' | 'sans' | 'mono';
-  bold: boolean;
-  italic: boolean;
-  color: string;
-};
+## Project-tree conversion
 
-type PositionedPage = {
-  width: number;
-  height: number;
-  backgroundPng: string;
-  runs: PositionedRun[];
-};
-```
-
-Coordinates and dimensions are PDF points. `backgroundPng` is base64 without a
-data-URL prefix.
-
-### PDF
-
-PDF.js supplies page dimensions and text items with transforms, widths, heights,
-and font identities. Sailor renders each page to a canvas, masks the text-run
-rectangles using the sampled local background color, and retains the remaining
-rules, icons, shading, and images as a PNG background. The extracted text runs
-are then placed over that background by LaTeX.
-
-This preserves source text verbatim and keeps it editable. Font substitution,
-unusual text transforms, and text baked into an image are best-effort. If PDF.js
-finds no selectable text, Sailor rejects the file rather than performing OCR or
-guessing.
-
-### DOCX
-
-`docx-preview` renders the document into an off-screen, isolated container with
-embedded HTML chunks and change markup disabled. Sailor reads page boxes, text
-node rectangles, and computed font styles from that rendered result. Each page
-is captured to canvas, its editable text rectangles are masked, and the same
-positioned layout model is emitted.
-
-DOCX conversion adds `docx-preview` and one DOM-to-canvas package to the web app.
-No new server binary or conversion service is introduced.
-
-### LaTeX generation
-
-A pure `layoutToResumeTree()` function creates:
-
-- `main.tex`, using `geometry`, `graphicx`, and `textpos` for fixed page geometry;
-- one base64-encoded PNG background per page; and
-- one clearly delimited source line per editable text run.
-
-All LaTeX metacharacters are escaped by one shared function. The generator maps
-fonts only to serif, sans, and mono families available to Tectonic. It never
-generates or changes words.
-
-## Binary resume assets
-
-`ResumeFile` gains an optional `encoding: 'base64'`. Missing encoding continues
-to mean UTF-8, so every existing resume and test fixture remains valid. The
-compiler decodes base64 assets before writing them into its scratch directory.
-Canonical hashing includes the encoding field, preserving content-addressed
-version semantics.
-
-The core schema rejects unsupported encodings and bounds individual and total
-tree size. The editor only opens UTF-8 source files; binary backgrounds remain
-part of the immutable tree and are preserved across edits.
-
-## Data flow
+The browser receives `File` objects from `<input type="file" webkitdirectory>`.
+For every file, it removes the picker-only top-level folder prefix from
+`webkitRelativePath` while preserving everything beneath it. For example:
 
 ```text
-file/pasted source
-  -> browser validation
-  -> PDF.js or docx-preview extraction (document uploads only)
-  -> positioned layout
+my-resume/main.tex             -> main.tex
+my-resume/images/leetcode.png  -> images/leetcode.png
+my-resume/styles/resume.cls    -> styles/resume.cls
+```
+
+Known LaTeX source files are stored as UTF-8. Other files are stored as base64
+assets using the existing optional `ResumeFile.encoding` field. The existing
+core schema remains the trust boundary for path, file-count, per-file, and total
+tree-size limits.
+
+Picker metadata must not be trusted. Import rejects empty paths, absolute paths,
+path traversal, duplicate normalized paths, and folders whose files do not share
+one top-level picker directory. No file is silently renamed or flattened.
+
+## Compile and persistence flow
+
+```text
+folder picker
+  -> preserve and validate relative paths
+  -> choose the root .tex file
   -> ResumeTree
   -> existing POST /api/resumes
   -> ResumeTree Zod parse
-  -> authoritative Tectonic compile
-  -> immutable initial version, only on success
+  -> authoritative Tectonic compile of the full scratch-directory tree
+  -> immutable initial version only on success
 ```
 
-No new database table, provider call, or model prompt is required.
+This is Overleaf-like only in the relevant sense: Sailor compiles a root TeX
+file with all uploaded project files available at their original relative paths.
+It does not add collaboration, cloud package management, shell escape, or an
+Overleaf-compatible project API. Tectonic remains sandboxed with `--untrusted`.
 
-## Errors and safety
+The existing compiler already writes every `ResumeTree` file into one temporary
+directory before invoking Tectonic. Binary decoding remains necessary for local
+images and other assets. No database schema change or new service is needed.
 
-- Accept only the advertised file extensions and MIME types.
-- Limit PDF/DOCX source files to 10 MB and the generated tree to the core schema
-  limit.
-- Disable DOCX altChunk rendering so embedded HTML is never interpreted.
-- Do not log document content or generated LaTeX.
-- Preserve the existing traversal checks when writing binary assets.
-- Return server compile diagnostics unchanged through the existing safe API
-  error shape.
-- Create no database row until conversion and compilation both succeed.
+## Errors
 
-## Testing
+Conversion errors are shown before upload and create nothing. Compile errors
+continue through the existing server response, including the compile-before-save
+guarantee:
+
+```text
+That LaTeX does not compile, so it was not saved:
+error at <unknown>: Unable to load picture or PDF file 'leetcode.png'.
+```
+
+Because the whole tree is uploaded, a correctly referenced local asset compiles.
+If the TeX refers to a file that is not in the chosen folder, the diagnostic is
+still the correct result and tells the user what must be added or fixed.
+
+Errors must remain actionable for an empty folder, missing root document,
+ambiguous root documents, unsafe or duplicate paths, unsupported tree size, and
+server compilation failure. Resume contents and compiler input are not logged.
+
+## Removal
+
+Delete the PDF and DOCX resume adapters, positioned-layout generator, their
+tests, and the `docx-preview` and `html-to-image` dependencies. Keep PDF.js and
+the existing PDF text extractor because they are still used for job-description
+PDF import and resume preview.
+
+Keep the binary `ResumeFile` support and compiler decoding already added on this
+branch; folder projects need them for images and other non-text inputs.
+
+## Testing and verification
 
 Development follows red-green-refactor.
 
-- Core tests prove base64 files parse, hash distinctly, and reject invalid or
-  oversized content.
-- Compiler tests prove a base64 PNG asset is decoded and included in a real PDF.
-- Pure generator tests prove page geometry, run placement, font/style mapping,
-  and complete LaTeX escaping using literal expected output.
-- PDF adapter tests use a small real fixture or a complete PDF.js-shaped loader
-  double and prove page positions and unchanged text.
-- DOCX adapter tests cover validation and the DOM-to-layout boundary; the actual
-  browser flow is exercised with a real DOCX.
-- Homepage tests cover the three choices and error/progress state where the
-  current test setup can exercise behavior without mocking framework internals.
-
-Before completion, run `bun run check`, `bun run typecheck`, and `bun test`, then
-drive all three creation paths in the browser with a real compiling LaTeX sample,
-a text-based PDF, and a DOCX. Compare the first imported render with each source
-and report any fidelity gap honestly.
+- Pure importer tests cover prefix removal, nested paths, UTF-8 source, base64
+  assets, deterministic entry selection, duplicate paths, traversal, and entry
+  ambiguity.
+- Existing core and compiler tests continue proving binary assets are validated,
+  hashed, decoded, and compiled.
+- The home-page flow is exercised with a real folder containing `main.tex`, a
+  nested include, and `images/leetcode.png`.
+- Removing `leetcode.png` must reproduce the actionable compile failure and must
+  not create a resume.
+- Before completion, run `bun run check`, `bun run typecheck`, and `bun test`,
+  then drive template, pasted-source, and folder creation in the browser.
 
 ## Deliberate limits
 
-- No OCR in this version. Add it only when image-only resumes are a demonstrated
-  need and can be implemented without inventing text.
-- No AI reconstruction. It would improve some layouts but conflicts with the
-  requirement that import never alter resume facts.
-- Imported fixed-position layouts can overlap after large text edits. The user
-  can ask the agent to reflow the document later; automatic semantic reflow is a
-  separate feature.
-- Word features outside the browser renderer's supported layout remain
-  best-effort rather than triggering a second conversion stack.
+- No PDF, DOCX, OCR, or AI reconstruction.
+- No ZIP upload until browser folder selection proves insufficient in real use.
+- No entry-file chooser until ambiguous multi-document folders are common.
+- No full project file browser in the editor; the existing source editor and
+  agent tools continue to operate on the imported immutable tree.
