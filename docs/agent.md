@@ -17,6 +17,14 @@ The job target carries its provenance. Text pasted by a user is labelled
 `pasted`; only a posting that the agent fetched itself is `fetched`. The prompt
 uses that distinction when judging how much it can trust the description.
 
+Ordinary questions remain one phase. When a turn with a real job target records
+a gap analysis or commits a changed resume version, an independent evaluator
+reviews the latest saved version, reports an interim evidence-backed score,
+and gives the agent one correction phase through the same gated tools. A final
+review then scores the resulting version. The cycle never repeats recursively.
+If evaluation fails, accepted versions remain saved and Sailor reports that no
+reliable score was produced rather than guessing one.
+
 ## Tools and permissions
 
 Tools live in `packages/agent/src/tools/` and are assembled once by

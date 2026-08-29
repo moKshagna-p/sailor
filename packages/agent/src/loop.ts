@@ -1,6 +1,7 @@
-import { errorMessage } from '@sailor/core';
+import { errorMessage, type ScoredResumeEvaluation } from '@sailor/core';
 import type { LanguageModel, ModelMessage } from 'ai';
 import { stepCountIs, streamText } from 'ai';
+import { evaluateResume, formatResumeEvaluation, reviewCorrectionContext } from './evaluation.ts';
 import type { AgentEventSink } from './events.ts';
 import { systemPrompt } from './prompt.ts';
 import type { ToolContext } from './tools/context.ts';
@@ -23,25 +24,30 @@ export type TurnResult = {
   stopReason: 'end_turn' | 'max_steps' | 'error' | 'cancelled';
 };
 
-export async function runTurn(args: {
+type PhaseResult = {
+  messages: ModelMessage[];
+  stopReason: TurnResult['stopReason'];
+};
+
+const REVIEW_UNAVAILABLE = `### Resume review unavailable
+
+The resume edits made so far are saved, but the evaluator did not produce a valid score. No score was guessed. Retry the tailoring request to run the review again.`;
+
+const assistantText = (text: string): ModelMessage => ({ role: 'assistant', content: text });
+
+async function runPhase(args: {
   model: LanguageModel;
   ctx: ToolContext;
-  /** Prior turns, replayed from the DB. */
-  history: ModelMessage[];
-  userMessage: string;
+  messages: ModelMessage[];
+  system: string;
   emit: AgentEventSink;
   signal?: AbortSignal;
-}): Promise<TurnResult> {
-  const { model, ctx, history, userMessage, emit, signal } = args;
-
-  const version = await ctx.currentVersion();
-  const job = await ctx.jobTarget();
-
-  const messages: ModelMessage[] = [...history, { role: 'user', content: userMessage }];
+}): Promise<PhaseResult> {
+  const { model, ctx, messages, system, emit, signal } = args;
 
   const result = streamText({
     model,
-    system: systemPrompt({ version, job }),
+    system,
     messages,
     tools: buildTools(ctx),
     // A tailoring turn legitimately takes many steps: fetch the JD, read the
@@ -76,12 +82,16 @@ export async function runTurn(args: {
         case 'tool-result': {
           // Our tools return Result<T>; a false `ok` is a handled failure the
           // model is expected to recover from, not a crash.
-          const output = part.output as { ok?: boolean } | undefined;
+          const failed =
+            typeof part.output === 'object' &&
+            part.output !== null &&
+            'ok' in part.output &&
+            part.output.ok === false;
           emit({
             type: 'tool_end',
             callId: part.toolCallId,
             name: part.toolName,
-            ok: output?.ok !== false,
+            ok: !failed,
             output: part.output,
           });
           break;
@@ -114,35 +124,128 @@ export async function runTurn(args: {
           break;
       }
     }
-  } catch (cause) {
-    if (signal?.aborted) {
-      emit({ type: 'turn_end', stopReason: 'cancelled' });
-      return { messages: [], stopReason: 'cancelled' };
+
+    const steps = await result.steps;
+    if (steps.length >= MAX_STEPS && stopReason === 'end_turn') {
+      stopReason = 'max_steps';
+      emit({
+        type: 'error',
+        message:
+          `The agent hit its ${MAX_STEPS}-step limit and stopped. Its work so far is saved — ` +
+          `send another message to have it continue.`,
+      });
     }
-    const message = errorMessage(cause);
-    emit({ type: 'error', message });
-    emit({ type: 'turn_end', stopReason: 'error' });
+
+    const response = await result.response;
+    return { messages: response.messages, stopReason };
+  } catch (cause) {
+    if (signal?.aborted) return { messages: [], stopReason: 'cancelled' };
+    emit({ type: 'error', message: errorMessage(cause) });
     return { messages: [], stopReason: 'error' };
   }
+}
 
-  const steps = await result.steps;
-  if (steps.length >= MAX_STEPS && stopReason === 'end_turn') {
-    stopReason = 'max_steps';
-    emit({
-      type: 'error',
-      message:
-        `The agent hit its ${MAX_STEPS}-step limit and stopped. Its work so far is saved — ` +
-        `send another message to have it continue.`,
-    });
+export async function runTurn(args: {
+  model: LanguageModel;
+  ctx: ToolContext;
+  /** Prior turns, replayed from the DB. */
+  history: ModelMessage[];
+  userMessage: string;
+  emit: AgentEventSink;
+  signal?: AbortSignal;
+}): Promise<TurnResult> {
+  const { model, ctx, history, userMessage, emit, signal } = args;
+
+  const version = await ctx.currentVersion();
+  const job = await ctx.jobTarget();
+  const user: ModelMessage = { role: 'user', content: userMessage };
+  const phaseInput = [...history, user];
+  let shouldReview = false;
+  const trackedCtx: ToolContext = {
+    ...ctx,
+    emitGapAnalysis(analysis) {
+      shouldReview = true;
+      ctx.emitGapAnalysis(analysis);
+    },
+    async commit(input) {
+      const outcome = await ctx.commit(input);
+      if (!outcome.unchanged) shouldReview = true;
+      return outcome;
+    },
+  };
+
+  const initial = await runPhase({
+    model,
+    ctx: trackedCtx,
+    messages: phaseInput,
+    system: systemPrompt({ version, job }),
+    emit,
+    signal,
+  });
+  const turnMessages: ModelMessage[] = [user, ...initial.messages];
+
+  if (initial.stopReason !== 'end_turn' || !job || !shouldReview) {
+    emit({ type: 'turn_end', stopReason: initial.stopReason });
+    return { messages: turnMessages, stopReason: initial.stopReason };
   }
 
-  emit({ type: 'turn_end', stopReason });
-
-  const response = await result.response;
-  return {
-    // The user message plus everything the model produced, so the next turn
-    // replays exactly what happened.
-    messages: [{ role: 'user', content: userMessage }, ...response.messages],
-    stopReason,
+  const failReview = (cause: unknown): TurnResult => {
+    if (signal?.aborted) {
+      emit({ type: 'turn_end', stopReason: 'cancelled' });
+      return { messages: turnMessages, stopReason: 'cancelled' };
+    }
+    emit({ type: 'error', message: `Resume review failed: ${errorMessage(cause)}` });
+    emit({ type: 'text_delta', text: `\n\n${REVIEW_UNAVAILABLE}` });
+    turnMessages.push(assistantText(REVIEW_UNAVAILABLE));
+    emit({ type: 'turn_end', stopReason: 'error' });
+    return { messages: turnMessages, stopReason: 'error' };
   };
+
+  let interim: ScoredResumeEvaluation;
+  try {
+    const interimVersion = await ctx.currentVersion();
+    interim = await evaluateResume({ model, version: interimVersion, job, signal });
+    const report = formatResumeEvaluation('interim', interimVersion.id, interim);
+    emit({ type: 'text_delta', text: `\n\n${report}` });
+    turnMessages.push(assistantText(report));
+  } catch (cause) {
+    return failReview(cause);
+  }
+
+  const correctionVersion = await ctx.currentVersion();
+  const correction = await runPhase({
+    model,
+    ctx,
+    messages: [
+      ...history,
+      ...turnMessages,
+      {
+        role: 'user',
+        content:
+          'Apply the independent review now. Make only evidence-backed improvements, then stop.',
+      },
+    ],
+    system: `${systemPrompt({ version: correctionVersion, job })}\n\n${reviewCorrectionContext(interim)}`,
+    emit,
+    signal,
+  });
+  turnMessages.push(...correction.messages);
+
+  if (correction.stopReason !== 'end_turn') {
+    emit({ type: 'turn_end', stopReason: correction.stopReason });
+    return { messages: turnMessages, stopReason: correction.stopReason };
+  }
+
+  try {
+    const finalVersion = await ctx.currentVersion();
+    const final = await evaluateResume({ model, version: finalVersion, job, signal });
+    const report = formatResumeEvaluation('final', finalVersion.id, final);
+    emit({ type: 'text_delta', text: `\n\n${report}` });
+    turnMessages.push(assistantText(report));
+  } catch (cause) {
+    return failReview(cause);
+  }
+
+  emit({ type: 'turn_end', stopReason: 'end_turn' });
+  return { messages: turnMessages, stopReason: 'end_turn' };
 }
