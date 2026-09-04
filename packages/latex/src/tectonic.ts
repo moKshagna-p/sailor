@@ -1,9 +1,10 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CompileResult, ResumeTree } from '@sailor/core';
-import { getEntryFile } from '@sailor/core';
+import { getEntryFile, hashTree } from '@sailor/core';
+import { CompileArtifactCache } from './artifact-cache.ts';
 import { parseLatexLog } from './diagnostics.ts';
 import { Semaphore } from './semaphore.ts';
 import { STARTER_RESUME } from './template.ts';
@@ -39,19 +40,79 @@ const TIMEOUT_MS = Number(process.env.LATEX_TIMEOUT_MS ?? 60_000);
  * the cost of this being too small is a red build on a green tree.
  */
 const PREWARM_TIMEOUT_MS = Number(process.env.LATEX_PREWARM_TIMEOUT_MS ?? 600_000);
+const ARTIFACT_CACHE_MAX_ENTRIES = Number(process.env.LATEX_ARTIFACT_CACHE_MAX_ENTRIES ?? 32);
+const ARTIFACT_CACHE_MAX_BYTES = Number(
+  process.env.LATEX_ARTIFACT_CACHE_MAX_BYTES ?? 32 * 1024 * 1024,
+);
 
 const gate = new Semaphore(Number(process.env.LATEX_POOL_SIZE ?? 2));
+const artifactCache = new CompileArtifactCache(
+  ARTIFACT_CACHE_MAX_ENTRIES,
+  ARTIFACT_CACHE_MAX_BYTES,
+);
+const inFlight = new Map<string, CompileJob>();
+let compilerRuns = 0;
+
+type CompileOptions = {
+  timeoutMs?: number;
+  synctex?: boolean;
+  signal?: AbortSignal;
+};
+
+type CompileJob = {
+  controller: AbortController;
+  promise: Promise<CompileResult>;
+  settled: boolean;
+  subscribers: number;
+};
 
 export async function compileWithTectonic(
   tree: ResumeTree,
-  options: { timeoutMs?: number; synctex?: boolean } = {},
+  options: CompileOptions = {},
 ): Promise<CompileResult> {
+  const requestedAt = performance.now();
+  options.signal?.throwIfAborted();
+  const key = await compileKey(tree, options);
+  options.signal?.throwIfAborted();
+
+  const cached = artifactCache.get(key);
+  if (cached) {
+    return {
+      ok: true,
+      ...cached,
+      durationMs: Math.round(performance.now() - requestedAt),
+      engine: 'tectonic',
+    };
+  }
+
+  let job = inFlight.get(key);
+  if (!job) {
+    const controller = new AbortController();
+    const promise = compileUncached(tree, {
+      timeoutMs: options.timeoutMs,
+      synctex: options.synctex,
+      signal: controller.signal,
+    });
+    job = { controller, promise, settled: false, subscribers: 0 };
+    inFlight.set(key, job);
+    const createdJob = job;
+    void promise.then(
+      (result) => finishJob(key, createdJob, result),
+      () => finishJob(key, createdJob),
+    );
+  }
+
+  return subscribe(job, options.signal, requestedAt);
+}
+
+async function compileUncached(tree: ResumeTree, options: CompileOptions): Promise<CompileResult> {
   const timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
-  const release = await gate.acquire();
+  const release = await gate.acquire(options.signal);
   const started = performance.now();
   let dir: string | undefined;
 
   try {
+    options.signal?.throwIfAborted();
     dir = await mkdtemp(join(tmpdir(), 'sailor-tex-'));
 
     // ResumeFile.path already rejects `..` and absolute paths at the schema
@@ -66,10 +127,12 @@ export async function compileWithTectonic(
         Bun.file(target),
         file.encoding === 'base64' ? Buffer.from(file.content, 'base64') : file.content,
       );
+      options.signal?.throwIfAborted();
     }
 
     const entry = getEntryFile(tree);
 
+    compilerRuns++;
     const proc = Bun.spawn(
       [
         BIN,
@@ -94,16 +157,18 @@ export async function compileWithTectonic(
         env: { ...process.env, TECTONIC_CACHE_DIR: CACHE_DIR },
         stdout: 'pipe',
         stderr: 'pipe',
+        signal: options.signal,
+        timeout: timeoutMs,
+        killSignal: 'SIGKILL',
       },
     );
 
-    const timeout = setTimeout(() => proc.kill(), timeoutMs);
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
       proc.exited,
     ]);
-    clearTimeout(timeout);
+    options.signal?.throwIfAborted();
 
     // Tectonic writes its chatter to stderr, but a malformed doc can put the
     // useful part on stdout. Parse both — dropping a diagnostic means the agent
@@ -152,8 +217,125 @@ export async function compileWithTectonic(
     };
   } finally {
     release();
-    if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {});
+    if (dir) {
+      try {
+        await rm(dir, { recursive: true, force: true });
+      } catch (error) {
+        console.error('[latex] failed to remove a compiler scratch directory', error);
+      }
+    }
   }
+}
+
+async function compileKey(tree: ResumeTree, options: CompileOptions): Promise<string> {
+  const [treeHash, compiler] = await Promise.all([hashTree(tree), compilerIdentity()]);
+  return JSON.stringify({
+    treeHash,
+    compiler,
+    options: {
+      synctex: options.synctex ?? false,
+      timeoutMs: options.timeoutMs ?? TIMEOUT_MS,
+    },
+  });
+}
+
+async function compilerIdentity(): Promise<{
+  bin: string;
+  bundle: string;
+  size: number | null;
+  modifiedMs: number | null;
+  profile: number;
+}> {
+  try {
+    const info = await stat(BIN);
+    return {
+      bin: BIN,
+      bundle: BUNDLE,
+      size: info.size,
+      modifiedMs: info.mtimeMs,
+      // Increment if output-affecting CLI flags in compileUncached change.
+      profile: 1,
+    };
+  } catch {
+    // Let Bun.spawn report the actionable compiler error. The missing identity
+    // still prevents it from colliding with an installed binary's artifacts.
+    return { bin: BIN, bundle: BUNDLE, size: null, modifiedMs: null, profile: 1 };
+  }
+}
+
+function finishJob(key: string, job: CompileJob, result?: CompileResult): void {
+  job.settled = true;
+  if (inFlight.get(key) === job) inFlight.delete(key);
+  if (result?.ok) {
+    artifactCache.set(key, {
+      pdf: result.pdf,
+      diagnostics: result.diagnostics,
+      ...(result.synctex === undefined ? {} : { synctex: result.synctex }),
+    });
+  }
+}
+
+function subscribe(
+  job: CompileJob,
+  signal: AbortSignal | undefined,
+  requestedAt: number,
+): Promise<CompileResult> {
+  signal?.throwIfAborted();
+  job.subscribers++;
+
+  return new Promise<CompileResult>((resolve, reject) => {
+    let finished = false;
+    const finishSubscriber = () => {
+      if (finished) return false;
+      finished = true;
+      signal?.removeEventListener('abort', onAbort);
+      job.subscribers--;
+      return true;
+    };
+    const onAbort = () => {
+      if (!finishSubscriber()) return;
+      const reason = signal?.reason ?? new DOMException('The operation was aborted', 'AbortError');
+      if (job.subscribers === 0 && !job.settled) {
+        job.controller.abort(reason);
+        // Bun finishes killing the child and compileUncached releases its permit
+        // in finally. Do not report cancellation as complete before that cleanup.
+        void job.promise.then(
+          () => reject(reason),
+          () => reject(reason),
+        );
+        return;
+      }
+      reject(reason);
+    };
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+    void job.promise.then(
+      (result) => {
+        if (!finishSubscriber()) return;
+        resolve(copyResult(result, Math.round(performance.now() - requestedAt)));
+      },
+      (error: unknown) => {
+        if (!finishSubscriber()) return;
+        reject(error);
+      },
+    );
+  });
+}
+
+function copyResult(result: CompileResult, durationMs: number): CompileResult {
+  if (result.ok) {
+    return {
+      ...result,
+      pdf: result.pdf.slice(),
+      diagnostics: result.diagnostics.map((diagnostic) => ({ ...diagnostic })),
+      durationMs,
+    };
+  }
+  return {
+    ...result,
+    diagnostics: result.diagnostics.map((diagnostic) => ({ ...diagnostic })),
+    durationMs,
+  };
 }
 
 /**
@@ -207,5 +389,10 @@ export function prewarm(): Promise<void> {
 export const tectonicStatus = () => ({
   bin: BIN,
   cacheDir: CACHE_DIR,
+  activeCompiles: gate.activeCount,
   queueDepth: gate.queueDepth,
+  compilerRuns,
+  inFlightCompiles: inFlight.size,
+  artifactCacheEntries: artifactCache.entryCount,
+  artifactCacheBytes: artifactCache.byteSize,
 });
