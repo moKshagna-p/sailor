@@ -115,6 +115,12 @@ const app = new Elysia()
   .use(cors({ origin: WEB_ORIGIN, credentials: true }))
   .mount(auth.handler)
   .onError(({ error, code, set }) => {
+    if (error instanceof Error && error.name === 'AbortError') {
+      // A superseded preview closed its connection. Cancellation is expected,
+      // and compileWithTectonic has already killed and cleaned up its process.
+      set.status = 499;
+      return { error: 'Request cancelled' };
+    }
     if (error instanceof UnauthorizedError) {
       set.status = 401;
       return { error: error.message };
@@ -516,9 +522,12 @@ const app = new Elysia()
    * starter resume, so the inflation is worth not inventing a wire format. The
    * default path still streams raw bytes.
    */
-  .post('/api/compile', async ({ body, set }) => {
+  .post('/api/compile', async ({ body, request, set }) => {
     const input = parse(z.object({ tree: ResumeTree, synctex: z.boolean().default(false) }), body);
-    const result = await compileWithTectonic(input.tree, { synctex: input.synctex });
+    const result = await compileWithTectonic(input.tree, {
+      synctex: input.synctex,
+      signal: request.signal,
+    });
 
     if (!result.ok) {
       set.status = 422;
